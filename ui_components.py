@@ -415,6 +415,22 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         """Update colors for theme changes"""
         self.configure(bg=colors['text_bg'], fg=colors['text_fg'])
 
+        # NEW: Update scrollbar colors for theme
+        try:
+            # Get the scrollbar widget
+            scrollbar = None
+            for child in self.master.winfo_children():
+                if isinstance(child, tk.Scrollbar):
+                    scrollbar = child
+                    break
+
+            if scrollbar:
+                scrollbar.configure(bg=colors['scrollbar_bg'],
+                                    troughcolor=colors['scrollbar_fg'],
+                                    activebackground=colors['button_bg'])
+        except:
+            pass  # Ignore if scrollbar styling fails
+
         # Update tag colors for dark theme
         if colors.get('bg') == '#2b2b2b':  # Dark theme
             self.tag_configure("user", foreground="#4da6ff", font=("Inter", 11, "normal"))

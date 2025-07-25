@@ -5,6 +5,7 @@ Handles application settings, user preferences, and API key management
 
 import json
 import os
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 import tkinter as tk
@@ -20,9 +21,13 @@ class ConfigManager:
         self.config_dir = self._get_config_directory()
         self.config_file = self.config_dir / "config.json"
         self.sessions_file = self.config_dir / "sessions.json"
+        self.log_file = self.config_dir / "app.log"
         
         # Ensure config directory exists
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Setup logging
+        self._setup_logging()
         
         # Default configuration
         self.default_config = {
@@ -38,11 +43,26 @@ class ConfigManager:
             "image_generation_enabled": True,
             "search_enabled": True,
             "last_used_directory": str(Path.home()),
-            "chat_history_limit": 100
+            "chat_history_limit": 100,
+            "auto_clear_files": False  # NEW OPTION
         }
         
         self.config = self._load_config()
         self.sessions = self._load_sessions()
+        
+        # Log initialization
+        logging.info("ConfigManager initialized")
+    
+    def _setup_logging(self):
+        """Setup application logging"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(self.log_file, encoding='utf-8'),
+                logging.StreamHandler()  # Also log to console
+            ]
+        )
     
     def _get_config_directory(self) -> Path:
         """Get platform-specific configuration directory"""
@@ -68,11 +88,13 @@ class ConfigManager:
                 # Merge with defaults to ensure all keys exist
                 merged_config = self.default_config.copy()
                 merged_config.update(config)
+                logging.info("Configuration loaded successfully")
                 return merged_config
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Error loading config: {e}")
+                logging.error(f"Error loading config: {e}")
                 return self.default_config.copy()
         else:
+            logging.info("No existing config file, using defaults")
             return self.default_config.copy()
     
     def _load_sessions(self) -> Dict[str, Any]:
@@ -80,9 +102,11 @@ class ConfigManager:
         if self.sessions_file.exists():
             try:
                 with open(self.sessions_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    sessions = json.load(f)
+                logging.info("Sessions loaded successfully")
+                return sessions
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Error loading sessions: {e}")
+                logging.error(f"Error loading sessions: {e}")
                 return {}
         else:
             return {}
@@ -92,16 +116,18 @@ class ConfigManager:
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
+            logging.info("Configuration saved successfully")
         except IOError as e:
-            print(f"Error saving config: {e}")
+            logging.error(f"Error saving config: {e}")
     
     def save_sessions(self):
         """Save chat sessions to file"""
         try:
             with open(self.sessions_file, 'w', encoding='utf-8') as f:
                 json.dump(self.sessions, f, indent=2, ensure_ascii=False)
+            logging.info("Sessions saved successfully")
         except IOError as e:
-            print(f"Error saving sessions: {e}")
+            logging.error(f"Error saving sessions: {e}")
     
     def get(self, key: str, default=None):
         """Get configuration value"""
@@ -111,6 +137,7 @@ class ConfigManager:
         """Set configuration value"""
         self.config[key] = value
         self.save_config()
+        logging.info(f"Configuration updated: {key} = {value}")
     
     def get_api_key(self) -> str:
         """Get API key"""
@@ -120,6 +147,7 @@ class ConfigManager:
         """Set API key"""
         self.config["api_key"] = api_key
         self.save_config()
+        logging.info("API key updated")
     
     def is_api_key_configured(self) -> bool:
         """Check if API key is configured"""
@@ -221,9 +249,10 @@ class ConfigManager:
             }
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
+            logging.info(f"Configuration exported to {file_path}")
             return True
         except Exception as e:
-            print(f"Error exporting config: {e}")
+            logging.error(f"Error exporting config: {e}")
             return False
     
     def import_config(self, file_path: str) -> bool:
@@ -243,9 +272,10 @@ class ConfigManager:
                 self.sessions.update(import_data["sessions"])
                 self.save_sessions()
             
+            logging.info(f"Configuration imported from {file_path}")
             return True
         except Exception as e:
-            print(f"Error importing config: {e}")
+            logging.error(f"Error importing config: {e}")
             return False
     
     def reset_to_defaults(self):
@@ -254,6 +284,7 @@ class ConfigManager:
         self.config = self.default_config.copy()
         self.config["api_key"] = api_key
         self.save_config()
+        logging.info("Configuration reset to defaults")
     
     def validate_config(self) -> list:
         """Validate configuration and return list of issues"""
@@ -363,10 +394,15 @@ class SettingsDialog:
         tk.Checkbutton(self.general_frame, text="Auto-save responses",
                       variable=self.auto_save_var).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         
+        # NEW: Auto-clear files option
+        self.auto_clear_files_var = tk.BooleanVar()
+        tk.Checkbutton(self.general_frame, text="Auto-clear files after response",
+                      variable=self.auto_clear_files_var).grid(row=3, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        
         # Chat history limit
-        tk.Label(self.general_frame, text="Chat History Limit:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        tk.Label(self.general_frame, text="Chat History Limit:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         self.history_limit_var = tk.StringVar()
-        tk.Entry(self.general_frame, textvariable=self.history_limit_var).grid(row=3, column=1, sticky=tk.EW, padx=5, pady=5)
+        tk.Entry(self.general_frame, textvariable=self.history_limit_var).grid(row=4, column=1, sticky=tk.EW, padx=5, pady=5)
         
         self.general_frame.columnconfigure(1, weight=1)
     
@@ -447,6 +483,7 @@ class SettingsDialog:
             self.mode_var.set(modes[current_mode])
         
         self.auto_save_var.set(self.config_manager.get("auto_save_responses"))
+        self.auto_clear_files_var.set(self.config_manager.get("auto_clear_files"))  # NEW
         self.history_limit_var.set(str(self.config_manager.get("chat_history_limit")))
         
         self.api_key_var.set(self.config_manager.get("api_key"))
@@ -515,6 +552,7 @@ class SettingsDialog:
                     break
             
             self.config_manager.set("auto_save_responses", self.auto_save_var.get())
+            self.config_manager.set("auto_clear_files", self.auto_clear_files_var.get())  # NEW
             self.config_manager.set("chat_history_limit", int(self.history_limit_var.get()))
             
             self.config_manager.set("api_key", self.api_key_var.get())

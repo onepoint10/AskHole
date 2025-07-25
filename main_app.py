@@ -4,6 +4,7 @@ Contains the main application window and orchestrates all components
 """
 
 import tkinter as tk
+import logging
 from tkinter import ttk, messagebox
 import threading
 import uuid
@@ -43,6 +44,7 @@ class MainApplication:
             self.root = tk.Tk()
 
         self.root.title("Gemini Desktop Client")
+        self.root.iconbitmap("icon.ico")
         self.root.geometry(self.config_manager.get("window_geometry", "1920x1080"))
         
         # Apply theme
@@ -88,7 +90,7 @@ class MainApplication:
         style = ttk.Style()
         style.theme_use('clam')
 
-        # Configure ttk widget styles
+        # Configure ttk widget styles with comprehensive theming
         style.configure('TFrame', background=colors['frame_bg'])
         style.configure('TLabel', background=colors['frame_bg'], foreground=colors['fg'],
                         font=('Segoe UI', 10))
@@ -100,6 +102,15 @@ class MainApplication:
         style.configure('TNotebook.Tab', background=colors['button_bg'], foreground=colors['button_fg'],
                         font=('Segoe UI', 9))
 
+        # NEW: Configure scrollbar styles
+        style.configure('Vertical.TScrollbar', background=colors['scrollbar_bg'],
+                        troughcolor=colors['scrollbar_fg'], borderwidth=1)
+        style.configure('Horizontal.TScrollbar', background=colors['scrollbar_bg'],
+                        troughcolor=colors['scrollbar_fg'], borderwidth=1)
+
+        # NEW: Configure paned window
+        style.configure('TPanedwindow', background=colors['frame_bg'])
+
         # Apply theme to existing widgets
         self.apply_theme_to_widgets(self.root, colors)
 
@@ -110,6 +121,10 @@ class MainApplication:
         # Update spinner theme
         if hasattr(self, 'loading_spinner'):
             self.loading_spinner.set_theme(colors['bg'] == '#2b2b2b')
+
+        # NEW: Update main paned window theme
+        if hasattr(self, 'main_paned'):
+            self.main_paned.configure(bg=colors['frame_bg'])
 
     def apply_theme_to_widgets(self, widget, colors):
         """Recursively apply theme to all widgets"""
@@ -274,36 +289,51 @@ class MainApplication:
                   command=self.add_files).pack(fill=tk.X, pady=2)
         ttk.Button(actions_frame, text="Clear Files", 
                   command=self.clear_files).pack(fill=tk.X, pady=2)
-    
+
     def create_right_panel(self):
         """Create right panel with chat interface"""
         # Response display
         response_frame = ttk.Frame(self.right_panel)
         response_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
         ttk.Label(response_frame, text="Conversation:").pack(anchor=tk.W)
-        
+
         self.response_display = ResponseDisplay(response_frame, height=20)
         self.response_display.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
-        
+
         # Input area
         input_frame = ttk.Frame(self.right_panel)
         input_frame.pack(fill=tk.X, padx=5, pady=5)
-        
+
         ttk.Label(input_frame, text="Your message:").pack(anchor=tk.W)
-        
+
         # Input text with scrollbar
         input_text_frame = ttk.Frame(input_frame)
         input_text_frame.pack(fill=tk.X, pady=(5, 10))
-        
+
         self.input_text = tk.Text(input_text_frame, height=4, wrap=tk.WORD)
-        input_scrollbar = ttk.Scrollbar(input_text_frame, orient=tk.VERTICAL, 
-                                       command=self.input_text.yview)
+        input_scrollbar = ttk.Scrollbar(input_text_frame, orient=tk.VERTICAL,
+                                        command=self.input_text.yview)
         self.input_text.configure(yscrollcommand=input_scrollbar.set)
-        
+
         self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         input_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
+        # NEW: Add context menu for input text
+        self.input_context_menu = tk.Menu(self.input_text, tearoff=0)
+        self.input_context_menu.add_command(label="Cut", command=self.cut_text)
+        self.input_context_menu.add_command(label="Copy", command=self.copy_text)
+        self.input_context_menu.add_command(label="Paste", command=self.paste_text)
+        self.input_context_menu.add_separator()
+        self.input_context_menu.add_command(label="Select All", command=self.select_all_text)
+        self.input_text.bind("<Button-3>", self.show_input_context_menu)
+
+        # NEW: Bind universal keyboard shortcuts
+        self.input_text.bind("<Control-c>", lambda e: self.copy_text())
+        self.input_text.bind("<Control-v>", lambda e: self.paste_text())
+        self.input_text.bind("<Control-x>", lambda e: self.cut_text())
+        self.input_text.bind("<Control-a>", lambda e: self.select_all_text())
+
         # Bind Enter key
         self.input_text.bind('<Control-Return>', lambda e: self.send_message())
 
@@ -472,13 +502,15 @@ class MainApplication:
             args=(message, mode_key),
             daemon=True
         ).start()
-    
+
     def _send_message_thread(self, message: str, mode: str):
         """Send message in separate thread"""
         try:
+            logging.info(f"Sending message in {mode} mode with model {self.model_var.get()}")
+
             model = self.model_var.get()
             files = self.file_list.get_selected_files()
-            
+
             if mode == "chat":
                 response = self.gemini_client.chat_message(
                     self.current_session_id, message, model, files
@@ -501,11 +533,19 @@ class MainApplication:
                 return
             else:
                 response = self.gemini_client.generate_text(message, model, files)
-            
+
             # Display response
             self.root.after(0, lambda: self._display_response(response))
-            
+
+            # NEW: Auto-clear files if option is enabled
+            if self.config_manager.get("auto_clear_files", False):
+                self.root.after(0, self.clear_files)
+                logging.info("Auto-cleared files after response")
+
+            logging.info("Message sent and response received successfully")
+
         except Exception as e:
+            logging.error(f"Error in _send_message_thread: {e}")
             self.root.after(0, lambda: self._show_error(str(e)))
         finally:
             self.root.after(0, self._reset_send_button)
@@ -556,14 +596,16 @@ class MainApplication:
             self.root.after(0, self._reset_send_button)
         
         self.gemini_async.generate_audio_sync(message, audio_callback)
-    
+
     def _display_response(self, response: str):
         """Display response in the UI"""
         self.response_display.add_message(response, "assistant")
-    
+        logging.info("Response displayed to user")
+
     def _show_error(self, error_message: str):
         """Show error message"""
         self.response_display.add_message(error_message, "error")
+        logging.error(f"Error shown to user: {error_message}")
 
     def _reset_send_button(self):
         """Reset send button state"""
@@ -685,6 +727,78 @@ class MainApplication:
                 messagebox.showerror("Error", f"Failed to save: {e}")
         else:
             messagebox.showwarning("Warning", "No assistant response found to save.")
+
+    def send_message(self):
+        """Send message to Gemini"""
+        if not self.gemini_client:
+            if not self.initialize_client():
+                messagebox.showerror("Error", "Please configure your API key in Settings.")
+                logging.error("Failed to send message: API key not configured")
+                return
+
+        message = self.input_text.get(1.0, tk.END).strip()
+        if not message and self.file_list.get_file_count() == 0:
+            messagebox.showwarning("Warning", "Please enter a message or attach files.")
+            return
+
+        logging.info(f"User sending message: {message[:50]}{'...' if len(message) > 50 else ''}")
+
+        # Show loading indicator
+        self._show_loading()
+
+        # Add user message to display
+        if message:
+            self.response_display.add_message(message, "user")
+
+        # Clear input
+        self.input_text.delete(1.0, tk.END)
+
+        # Get current mode
+        display_mode = self.mode_var.get()
+        mode_key = None
+        modes = self.config_manager.get_available_modes()
+        for key, value in modes.items():
+            if value == display_mode:
+                mode_key = key
+                break
+
+        # Send message in separate thread
+        threading.Thread(
+            target=self._send_message_thread,
+            args=(message, mode_key),
+            daemon=True
+        ).start()
+
+    def show_input_context_menu(self, event):
+        """Show context menu for input text"""
+        self.input_context_menu.post(event.x_root, event.y_root)
+
+    def cut_text(self):
+        """Cut selected text"""
+        try:
+            self.input_text.event_generate("<<Cut>>")
+        except tk.TclError:
+            pass
+
+    def copy_text(self):
+        """Copy selected text"""
+        try:
+            self.input_text.event_generate("<<Copy>>")
+        except tk.TclError:
+            pass
+
+    def paste_text(self):
+        """Paste text from clipboard"""
+        try:
+            self.input_text.event_generate("<<Paste>>")
+        except tk.TclError:
+            pass
+
+    def select_all_text(self):
+        """Select all text in input"""
+        self.input_text.tag_add(tk.SEL, "1.0", tk.END)
+        self.input_text.mark_set(tk.INSERT, "1.0")
+        self.input_text.see(tk.INSERT)
 
     def show_settings(self):
         """Show settings dialog"""

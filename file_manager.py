@@ -356,25 +356,25 @@ class FileListWidget:
 
         self.create_widgets()
         self.setup_drag_drop()
-    
+
     def create_widgets(self):
         """Create file list widgets"""
         # Main frame
         self.frame = tk.Frame(self.parent)
-        
+
         # Toolbar
         toolbar = tk.Frame(self.frame)
         toolbar.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Button(toolbar, text="Add Files", 
-                 command=self.add_files).pack(side=tk.LEFT, padx=(0, 5))
-        tk.Button(toolbar, text="Clear All", 
-                 command=self.clear_files).pack(side=tk.LEFT)
-        
+
+        tk.Button(toolbar, text="Add Files",
+                  command=self.add_files).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Button(toolbar, text="Clear All",
+                  command=self.clear_files).pack(side=tk.LEFT)
+
         # File list
         list_frame = tk.Frame(self.frame)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
+
         # Scrollable listbox
         from tkinter import scrolledtext
         self.file_listbox = tk.Listbox(list_frame, selectmode=tk.SINGLE, font=('Segoe UI', 9))
@@ -383,18 +383,19 @@ class FileListWidget:
 
         self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
         # Bind events
         self.file_listbox.bind('<Double-Button-1>', self.on_double_click)
         self.file_listbox.bind('<<ListboxSelect>>', self.on_select)
-        
+        self.file_listbox.bind('<KeyPress-Delete>', self.on_delete_key)  # NEW: Delete key binding
+
         # Context menu
         self.context_menu = tk.Menu(self.file_listbox, tearoff=0)
         self.context_menu.add_command(label="Preview", command=self.preview_file)
         self.context_menu.add_command(label="Remove", command=self.remove_file)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Show in Explorer", command=self.show_in_explorer)
-        
+
         self.file_listbox.bind("<Button-3>", self.show_context_menu)
 
     def setup_drag_drop(self):
@@ -435,18 +436,18 @@ class FileListWidget:
                     self.file_listbox.insert(tk.END, f"{file_info['name']} ({file_info['size_str']})")
                 else:
                     messagebox.showerror("Invalid File", f"{os.path.basename(file_path)}: {message}")
-        
+
         if self.callbacks['on_file_select']:
             self.callbacks['on_file_select'](self.get_selected_files())
-    
+
     def clear_files(self):
         """Clear all files from the list"""
         self.files.clear()
         self.file_listbox.delete(0, tk.END)
-        
+
         if self.callbacks['on_file_select']:
             self.callbacks['on_file_select']([])
-    
+
     def remove_file(self):
         """Remove selected file"""
         selection = self.file_listbox.curselection()
@@ -454,13 +455,17 @@ class FileListWidget:
             index = selection[0]
             self.files.pop(index)
             self.file_listbox.delete(index)
-            
+
             if self.callbacks['on_file_remove']:
                 self.callbacks['on_file_remove'](index)
-            
+
             if self.callbacks['on_file_select']:
                 self.callbacks['on_file_select'](self.get_selected_files())
-    
+
+    def on_delete_key(self, event):
+        """Handle Delete key press - NEW METHOD"""
+        self.remove_file()
+
     def preview_file(self):
         """Preview selected file"""
         selection = self.file_listbox.curselection()
@@ -468,7 +473,7 @@ class FileListWidget:
             file_info = self.files[selection[0]]
             if self.callbacks['on_file_preview']:
                 self.callbacks['on_file_preview'](file_info)
-    
+
     def show_in_explorer(self):
         """Show file in system explorer"""
         selection = self.file_listbox.curselection()
@@ -481,38 +486,38 @@ class FileListWidget:
                     os.system(f'open "{os.path.dirname(file_path)}"')
             except:
                 messagebox.showerror("Error", "Could not open file location")
-    
+
     def show_context_menu(self, event):
         """Show context menu"""
         if self.file_listbox.curselection():
             self.context_menu.post(event.x_root, event.y_root)
-    
+
     def on_double_click(self, event):
         """Handle double-click on file"""
         self.preview_file()
-    
+
     def on_select(self, event):
         """Handle file selection"""
         if self.callbacks['on_file_select']:
             self.callbacks['on_file_select'](self.get_selected_files())
-    
+
     def get_selected_files(self) -> List[str]:
         """Get list of selected file paths"""
         return [f['path'] for f in self.files]
-    
+
     def get_file_count(self) -> int:
         """Get number of files in list"""
         return len(self.files)
-    
+
     def set_callback(self, event: str, callback):
         """Set callback for events"""
         if event in self.callbacks:
             self.callbacks[event] = callback
-    
+
     def pack(self, **kwargs):
         """Pack the widget"""
         self.frame.pack(**kwargs)
-    
+
     def grid(self, **kwargs):
         """Grid the widget"""
         self.frame.grid(**kwargs)
