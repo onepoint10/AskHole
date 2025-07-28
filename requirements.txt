@@ -3,7 +3,11 @@
 # Google Gemini AI SDK
 google-genai>=0.1.0
 
-# Image processing
+# Image and file processing
+Pillow>=9.0.0
+reportlab>=3.6.0
+markdown>=3.4.0
+python-docx>=0.8.11
 Pillow>=9.0.0
 
 # Audio processing

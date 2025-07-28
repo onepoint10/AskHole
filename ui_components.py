@@ -387,7 +387,7 @@ class AudioPlayer(tk.Frame):
 
 
 class ResponseDisplay(scrolledtext.ScrolledText):
-    """Enhanced text display for AI responses"""
+    """Enhanced text display for AI responses with Python code highlighting"""
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
@@ -401,6 +401,9 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         self.tag_configure("error", foreground="#ff0000", font=("Inter", 11))
         self.tag_configure("system", foreground="#008000", font=("Inter", 11, "italic"))
 
+        # Python code highlighting tags
+        self.setup_python_highlighting_tags()
+
         # Context menu
         self.context_menu = tk.Menu(self, tearoff=0, font=('Segoe UI', 9))
         self.context_menu.add_command(label="Copy", command=self.copy_selection)
@@ -411,13 +414,48 @@ class ResponseDisplay(scrolledtext.ScrolledText):
 
         self.bind("<Button-3>", self.show_context_menu)
 
+    def setup_python_highlighting_tags(self):
+        """Setup text tags for Python syntax highlighting"""
+        # Code block background
+        self.tag_configure("code_block", background="#f8f8f8", font=("JetBrains Mono", 10),
+                           relief=tk.SOLID, borderwidth=1, lmargin1=10, lmargin2=10,
+                           rmargin=10, spacing1=5, spacing3=5)
+
+        # Python syntax highlighting tags
+        self.tag_configure("python_keyword", foreground="#0000FF", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_string", foreground="#008000", font=("JetBrains Mono", 10))
+        self.tag_configure("python_comment", foreground="#808080", font=("JetBrains Mono", 10, "italic"))
+        self.tag_configure("python_number", foreground="#FF4500", font=("JetBrains Mono", 10))
+        self.tag_configure("python_builtin", foreground="#800080", font=("JetBrains Mono", 10))
+        self.tag_configure("python_operator", foreground="#FF1493", font=("JetBrains Mono", 10))
+        self.tag_configure("python_function", foreground="#4169E1", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_class", foreground="#228B22", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_decorator", foreground="#FF6347", font=("JetBrains Mono", 10))
+
+    def setup_dark_theme_python_tags(self):
+        """Setup Python highlighting tags for dark theme"""
+        # Code block background for dark theme
+        self.tag_configure("code_block", background="#1e1e1e", font=("JetBrains Mono", 10),
+                           relief=tk.SOLID, borderwidth=1, lmargin1=10, lmargin2=10,
+                           rmargin=10, spacing1=5, spacing3=5)
+
+        # Dark theme Python syntax colors
+        self.tag_configure("python_keyword", foreground="#569CD6", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_string", foreground="#CE9178", font=("JetBrains Mono", 10))
+        self.tag_configure("python_comment", foreground="#6A9955", font=("JetBrains Mono", 10, "italic"))
+        self.tag_configure("python_number", foreground="#B5CEA8", font=("JetBrains Mono", 10))
+        self.tag_configure("python_builtin", foreground="#DCDCAA", font=("JetBrains Mono", 10))
+        self.tag_configure("python_operator", foreground="#D4D4D4", font=("JetBrains Mono", 10))
+        self.tag_configure("python_function", foreground="#DCDCAA", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_class", foreground="#4EC9B0", font=("JetBrains Mono", 10, "bold"))
+        self.tag_configure("python_decorator", foreground="#FFFF99", font=("JetBrains Mono", 10))
+
     def update_theme_colors(self, colors):
         """Update colors for theme changes"""
         self.configure(bg=colors['text_bg'], fg=colors['text_fg'])
 
-        # NEW: Update scrollbar colors for theme
+        # Update scrollbar colors for theme
         try:
-            # Get the scrollbar widget
             scrollbar = None
             for child in self.master.winfo_children():
                 if isinstance(child, tk.Scrollbar):
@@ -429,7 +467,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
                                     troughcolor=colors['scrollbar_fg'],
                                     activebackground=colors['button_bg'])
         except:
-            pass  # Ignore if scrollbar styling fails
+            pass
 
         # Update tag colors for dark theme
         if colors.get('bg') == '#2b2b2b':  # Dark theme
@@ -438,23 +476,226 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("timestamp", foreground="#999999", font=("SF Pro Display", 9))
             self.tag_configure("error", foreground="#ff6b6b", font=("Inter", 11, "normal"))
             self.tag_configure("system", foreground="#66bb6a", font=("Inter", 11, "italic"))
+            # Setup dark theme Python highlighting
+            self.setup_dark_theme_python_tags()
         else:  # Light theme
             self.tag_configure("user", foreground="#0078d4", font=("Inter", 11, "bold"))
             self.tag_configure("assistant", foreground="#000000", font=("Inter", 11))
             self.tag_configure("timestamp", foreground="#666666", font=("SF Pro Display", 9))
             self.tag_configure("error", foreground="#ff0000", font=("Inter", 11))
             self.tag_configure("system", foreground="#008000", font=("Inter", 11, "italic"))
-    
+            # Setup light theme Python highlighting
+            self.setup_python_highlighting_tags()
+
+    def highlight_python_code(self, text: str, start_index: str) -> str:
+        """Apply Python syntax highlighting to code text"""
+        # Python keywords
+        keywords = [
+            'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class',
+            'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from',
+            'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass',
+            'raise', 'return', 'try', 'while', 'with', 'yield'
+        ]
+
+        # Python built-in functions
+        builtins = [
+            'abs', 'all', 'any', 'bin', 'bool', 'chr', 'dict', 'dir', 'enumerate', 'filter',
+            'float', 'format', 'frozenset', 'getattr', 'hasattr', 'hash', 'help', 'hex', 'id',
+            'input', 'int', 'isinstance', 'issubclass', 'iter', 'len', 'list', 'map', 'max',
+            'min', 'next', 'object', 'oct', 'open', 'ord', 'pow', 'print', 'range', 'repr',
+            'reversed', 'round', 'set', 'setattr', 'slice', 'sorted', 'str', 'sum', 'super',
+            'tuple', 'type', 'vars', 'zip'
+        ]
+
+        lines = text.split('\n')
+        current_line = 0
+
+        for line in lines:
+            line_start = f"{start_index.split('.')[0]}.{int(start_index.split('.')[1]) + current_line}"
+
+            # Track position in line
+            char_pos = 0
+
+            # Find and highlight different elements
+            i = 0
+            while i < len(line):
+                char = line[i]
+
+                # Skip whitespace
+                if char.isspace():
+                    i += 1
+                    char_pos += 1
+                    continue
+
+                # Comments
+                if char == '#':
+                    comment_start = f"{line_start}.{char_pos}"
+                    comment_end = f"{line_start}.{len(line)}"
+                    self.tag_add("python_comment", comment_start, comment_end)
+                    break  # Rest of line is comment
+
+                # Strings
+                elif char in ['"', "'"]:
+                    quote = char
+                    string_start = f"{line_start}.{char_pos}"
+                    i += 1
+                    char_pos += 1
+
+                    # Find end of string
+                    while i < len(line) and line[i] != quote:
+                        if line[i] == '\\' and i + 1 < len(line):  # Escape character
+                            i += 2
+                            char_pos += 2
+                        else:
+                            i += 1
+                            char_pos += 1
+
+                    if i < len(line):  # Found closing quote
+                        i += 1
+                        char_pos += 1
+
+                    string_end = f"{line_start}.{char_pos}"
+                    self.tag_add("python_string", string_start, string_end)
+
+                # Numbers
+                elif char.isdigit() or (char == '.' and i + 1 < len(line) and line[i + 1].isdigit()):
+                    num_start = f"{line_start}.{char_pos}"
+
+                    # Handle different number formats
+                    while i < len(line) and (line[i].isdigit() or line[i] in '._xXbBoOeE+-'):
+                        i += 1
+                        char_pos += 1
+
+                    num_end = f"{line_start}.{char_pos}"
+                    self.tag_add("python_number", num_start, num_end)
+
+                # Decorators
+                elif char == '@':
+                    dec_start = f"{line_start}.{char_pos}"
+
+                    # Find end of decorator
+                    while i < len(line) and (line[i].isalnum() or line[i] in '@_.'):
+                        i += 1
+                        char_pos += 1
+
+                    dec_end = f"{line_start}.{char_pos}"
+                    self.tag_add("python_decorator", dec_start, dec_end)
+
+                # Operators
+                elif char in '+-*/%=<>!&|^~':
+                    op_start = f"{line_start}.{char_pos}"
+
+                    # Handle multi-character operators
+                    if i + 1 < len(line) and line[i:i + 2] in ['==', '!=', '<=', '>=', '//', '**', '<<', '>>', '+=',
+                                                               '-=', '*=', '/=', '%=', '&=', '|=', '^=']:
+                        i += 2
+                        char_pos += 2
+                    else:
+                        i += 1
+                        char_pos += 1
+
+                    op_end = f"{line_start}.{char_pos}"
+                    self.tag_add("python_operator", op_start, op_end)
+
+                # Identifiers (keywords, functions, classes, variables)
+                elif char.isalpha() or char == '_':
+                    word_start = f"{line_start}.{char_pos}"
+                    word_start_pos = char_pos
+
+                    # Get the full word
+                    while i < len(line) and (line[i].isalnum() or line[i] == '_'):
+                        i += 1
+                        char_pos += 1
+
+                    word = line[word_start_pos:char_pos]
+                    word_end = f"{line_start}.{char_pos}"
+
+                    # Check what type of word it is
+                    if word in keywords:
+                        self.tag_add("python_keyword", word_start, word_end)
+                    elif word in builtins:
+                        self.tag_add("python_builtin", word_start, word_end)
+                    elif i < len(line) and line[i] == '(':  # Function call
+                        self.tag_add("python_function", word_start, word_end)
+                    elif word[0].isupper():  # Likely a class name
+                        self.tag_add("python_class", word_start, word_end)
+
+                else:
+                    i += 1
+                    char_pos += 1
+
+            current_line += 1
+
+        return f"{start_index.split('.')[0]}.{int(start_index.split('.')[1]) + current_line}"
+
+    def detect_and_highlight_code_blocks(self, text: str, start_index: str):
+        """Detect and highlight Python code blocks in text"""
+        # Pattern for code blocks (both ```python and ``` formats)
+        code_block_pattern = r'```(?:python)?\n?(.*?)\n?```'
+
+        # Find all code blocks
+        matches = list(re.finditer(code_block_pattern, text, re.DOTALL | re.IGNORECASE))
+
+        if not matches:
+            return
+
+        # Process each code block
+        for match in matches:
+            code_content = match.group(1)
+
+            # Calculate positions in the text widget
+            text_before_match = text[:match.start()]
+            lines_before = text_before_match.count('\n')
+            last_line_chars = len(text_before_match.split('\n')[-1])
+
+            # Start position of code block
+            block_start_line = int(start_index.split('.')[1]) + lines_before
+            if lines_before == 0:
+                block_start_char = int(start_index.split('.')[1]) + last_line_chars
+            else:
+                block_start_char = last_line_chars
+
+            block_start = f"{start_index.split('.')[0]}.{block_start_char}"
+
+            # End position of code block
+            text_including_match = text[:match.end()]
+            total_lines = text_including_match.count('\n')
+            last_line_chars_end = len(text_including_match.split('\n')[-1])
+
+            block_end_line = int(start_index.split('.')[1]) + total_lines
+            if total_lines == lines_before:
+                block_end_char = int(start_index.split('.')[1]) + last_line_chars_end
+            else:
+                block_end_char = last_line_chars_end
+
+            block_end = f"{start_index.split('.')[0]}.{block_end_char}"
+
+            # Apply code block background
+            self.tag_add("code_block", block_start, block_end)
+
+            # Apply Python syntax highlighting to the code content
+            code_start_line = block_start_line
+            # Find where the actual code starts (after ``` and optional python)
+            match_text = match.group(0)
+            code_start_offset = match_text.find('\n') + 1 if '\n' in match_text else len(
+                '```python') if match_text.lower().startswith('```python') else 3
+
+            # Calculate the actual start position of code content
+            code_start_pos = f"{start_index.split('.')[0]}.{block_start_char + code_start_offset}"
+
+            # Highlight the Python code
+            self.highlight_python_code(code_content, code_start_pos)
+
     def add_message(self, message: str, sender: str = "assistant", timestamp: str = None):
-        """Add a message to the display"""
+        """Add a message to the display with Python code highlighting"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
-        
+
         self.configure(state=tk.NORMAL)
-        
+
         # Add timestamp
         self.insert(tk.END, f"[{timestamp}] ", "timestamp")
-        
+
         # Add sender and message
         if sender == "user":
             self.insert(tk.END, "You: ", "user")
@@ -464,19 +705,27 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.insert(tk.END, "System: ", "system")
         elif sender == "error":
             self.insert(tk.END, "Error: ", "error")
-        
+
+        # Get current position to start highlighting from
+        current_pos = self.index(tk.INSERT)
+
+        # Insert the message
         self.insert(tk.END, f"{message}\n\n", sender)
-        
+
+        # Apply Python code highlighting if this is from assistant
+        if sender == "assistant":
+            self.detect_and_highlight_code_blocks(message, current_pos)
+
         # Scroll to bottom
         self.see(tk.END)
         self.configure(state=tk.DISABLED)
-    
+
     def clear_all(self):
         """Clear all content"""
         self.configure(state=tk.NORMAL)
         self.delete(1.0, tk.END)
         self.configure(state=tk.DISABLED)
-    
+
     def copy_selection(self):
         """Copy selected text"""
         try:
@@ -485,13 +734,13 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.clipboard_append(selected_text)
         except tk.TclError:
             pass  # No selection
-    
+
     def select_all(self):
         """Select all text"""
         self.tag_add(tk.SEL, "1.0", tk.END)
         self.mark_set(tk.INSERT, "1.0")
         self.see(tk.INSERT)
-    
+
     def save_content(self):
         """Save content to file"""
         from tkinter import filedialog
@@ -508,7 +757,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
                     messagebox.showinfo("Saved", f"Content saved to {file_path}")
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to save: {e}")
-    
+
     def show_context_menu(self, event):
         """Show context menu"""
         self.context_menu.post(event.x_root, event.y_root)

@@ -18,6 +18,7 @@ from ui_components import (
     ModernButton, StatusBar, ProgressDialog, ImageViewer, 
     AudioPlayer, ResponseDisplay, LoadingSpinner
 )
+from notification_system import NotificationManager, StatusBarNotification
 
 
 class MainApplication:
@@ -55,6 +56,10 @@ class MainApplication:
         self.create_toolbar()
         self.create_main_content()
         self.create_status_bar()
+        
+        # Initialize notification system
+        self.notification_manager = NotificationManager(self.root)
+        self.status_notification = StatusBarNotification(self.status_bar)
         
         # Bind window events
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -96,19 +101,41 @@ class MainApplication:
                         font=('Segoe UI', 10))
         style.configure('TButton', background=colors['button_bg'], foreground=colors['button_fg'],
                         font=('Segoe UI', 9))
-        style.configure('TCombobox', fieldbackground=colors['entry_bg'], foreground=colors['entry_fg'],
+        
+        # Fix TCombobox styling for dark theme
+        style.configure('TCombobox', 
+                        fieldbackground=colors['entry_bg'], 
+                        foreground=colors['entry_fg'],
+                        background=colors['button_bg'],
+                        bordercolor=colors['button_bg'],
+                        arrowcolor=colors['entry_fg'],
                         font=('Segoe UI', 9))
+        
+        # Configure combobox dropdown styling
+        style.map('TCombobox',
+                  fieldbackground=[('readonly', colors['entry_bg'])],
+                  selectbackground=[('readonly', colors['select_bg'])],
+                  selectforeground=[('readonly', colors['select_fg'])],
+                  foreground=[('readonly', colors['entry_fg'])])
+        
         style.configure('TNotebook', background=colors['notebook_bg'])
         style.configure('TNotebook.Tab', background=colors['button_bg'], foreground=colors['button_fg'],
                         font=('Segoe UI', 9))
+        
+        # Map states for notebook tabs
+        style.map('TNotebook.Tab',
+                  background=[('selected', colors['select_bg']), ('active', colors['button_bg'])],
+                  foreground=[('selected', colors['select_fg']), ('active', colors['button_fg'])])
 
-        # NEW: Configure scrollbar styles
+        # Configure scrollbar styles
         style.configure('Vertical.TScrollbar', background=colors['scrollbar_bg'],
-                        troughcolor=colors['scrollbar_fg'], borderwidth=1)
+                        troughcolor=colors['scrollbar_fg'], borderwidth=1,
+                        arrowcolor=colors['entry_fg'])
         style.configure('Horizontal.TScrollbar', background=colors['scrollbar_bg'],
-                        troughcolor=colors['scrollbar_fg'], borderwidth=1)
+                        troughcolor=colors['scrollbar_fg'], borderwidth=1,
+                        arrowcolor=colors['entry_fg'])
 
-        # NEW: Configure paned window
+        # Configure paned window
         style.configure('TPanedwindow', background=colors['frame_bg'])
 
         # Apply theme to existing widgets
@@ -137,21 +164,33 @@ class MainApplication:
                 widget.configure(bg=colors['frame_bg'], fg=colors['fg'], font=('Segoe UI', 10))
             elif widget_class == 'Button':
                 widget.configure(bg=colors['button_bg'], fg=colors['button_fg'],
-                                 font=('Segoe UI', 9), relief='flat')
+                                 font=('Segoe UI', 9), relief='flat', 
+                                 activebackground=colors['select_bg'],
+                                 activeforeground=colors['select_fg'])
             elif widget_class == 'Entry':
                 widget.configure(bg=colors['entry_bg'], fg=colors['entry_fg'],
-                                 font=('Segoe UI', 10))
+                                 font=('Segoe UI', 10), insertbackground=colors['entry_fg'])
             elif widget_class == 'Text':
                 widget.configure(bg=colors['text_bg'], fg=colors['text_fg'],
-                                 font=('Segoe UI', 10))
+                                 font=('Segoe UI', 10), insertbackground=colors['text_fg'],
+                                 selectbackground=colors['select_bg'],
+                                 selectforeground=colors['select_fg'])
             elif widget_class == 'Listbox':
                 widget.configure(bg=colors['listbox_bg'], fg=colors['listbox_fg'],
-                                 font=('Segoe UI', 9))
+                                 font=('Segoe UI', 9),
+                                 selectbackground=colors['select_bg'],
+                                 selectforeground=colors['select_fg'])
             elif widget_class == 'Menu':
                 widget.configure(bg=colors['menu_bg'], fg=colors['menu_fg'],
-                                 font=('Segoe UI', 9))
+                                 font=('Segoe UI', 9),
+                                 activebackground=colors['select_bg'],
+                                 activeforeground=colors['select_fg'])
             elif widget_class == 'PanedWindow':
                 widget.configure(bg=colors['frame_bg'])
+            elif widget_class == 'Scrollbar':
+                widget.configure(bg=colors['scrollbar_bg'],
+                                troughcolor=colors['scrollbar_fg'],
+                                activebackground=colors['button_bg'])
         except tk.TclError:
             pass
 
@@ -168,12 +207,12 @@ class MainApplication:
         # Update response display
         if hasattr(self, 'response_display'):
             self.response_display.configure(font=('JetBrains Mono', 10))
-    
+
     def create_menu(self):
         """Create application menu bar"""
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
-        
+
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
@@ -183,19 +222,19 @@ class MainApplication:
         file_menu.add_command(label="Settings", command=self.show_settings)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing)
-        
+
         # Edit menu
         edit_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Clear Chat", command=self.clear_chat)
         edit_menu.add_command(label="Copy Response", command=self.copy_response)
-        
+
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Tools", menu=tools_menu)
         tools_menu.add_command(label="Audio Player", command=self.show_audio_player)
         tools_menu.add_command(label="File Manager", command=self.show_file_manager)
-        
+
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
@@ -307,11 +346,12 @@ class MainApplication:
 
         ttk.Label(input_frame, text="Your message:").pack(anchor=tk.W)
 
-        # Input text with scrollbar
+        # Input text with scrollbar and enhanced features
         input_text_frame = ttk.Frame(input_frame)
         input_text_frame.pack(fill=tk.X, pady=(5, 10))
 
-        self.input_text = tk.Text(input_text_frame, height=4, wrap=tk.WORD)
+        self.input_text = tk.Text(input_text_frame, height=4, wrap=tk.WORD, 
+                                  font=('Inter', 11), relief=tk.FLAT, bd=2, undo=True, maxundo=20)
         input_scrollbar = ttk.Scrollbar(input_text_frame, orient=tk.VERTICAL,
                                         command=self.input_text.yview)
         self.input_text.configure(yscrollcommand=input_scrollbar.set)
@@ -319,23 +359,44 @@ class MainApplication:
         self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         input_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # NEW: Add context menu for input text
+        # Enhanced context menu for input text
         self.input_context_menu = tk.Menu(self.input_text, tearoff=0)
-        self.input_context_menu.add_command(label="Cut", command=self.cut_text)
-        self.input_context_menu.add_command(label="Copy", command=self.copy_text)
-        self.input_context_menu.add_command(label="Paste", command=self.paste_text)
+        self.input_context_menu.add_command(label="Undo", command=self.undo_text, accelerator="Ctrl+Z")
+        self.input_context_menu.add_command(label="Redo", command=self.redo_text, accelerator="Ctrl+Y")
         self.input_context_menu.add_separator()
-        self.input_context_menu.add_command(label="Select All", command=self.select_all_text)
+        self.input_context_menu.add_command(label="Cut", command=self.cut_text, accelerator="Ctrl+X")
+        self.input_context_menu.add_command(label="Copy", command=self.copy_text, accelerator="Ctrl+C")
+        self.input_context_menu.add_command(label="Paste", command=self.paste_text, accelerator="Ctrl+V")
+        self.input_context_menu.add_separator()
+        self.input_context_menu.add_command(label="Select All", command=self.select_all_text, accelerator="Ctrl+A")
+        self.input_context_menu.add_command(label="Clear", command=self.clear_input_text)
         self.input_text.bind("<Button-3>", self.show_input_context_menu)
 
-        # NEW: Bind universal keyboard shortcuts
+        # Enhanced keyboard shortcuts
         self.input_text.bind("<Control-c>", lambda e: self.copy_text())
         self.input_text.bind("<Control-v>", lambda e: self.paste_text())
         self.input_text.bind("<Control-x>", lambda e: self.cut_text())
         self.input_text.bind("<Control-a>", lambda e: self.select_all_text())
+        self.input_text.bind("<Control-z>", lambda e: self.undo_text())
+        self.input_text.bind("<Control-y>", lambda e: self.redo_text())
+        self.input_text.bind("<Control-Return>", lambda e: self.send_message())
+        self.input_text.bind("<Shift-Return>", lambda e: self.insert_newline())
+        
+        # Auto-resize functionality
+        self.input_text.bind("<KeyRelease>", self.auto_resize_input)
+        self.input_text.bind("<Button-1>", self.auto_resize_input)
 
-        # Bind Enter key
-        self.input_text.bind('<Control-Return>', lambda e: self.send_message())
+        # Character count display
+        self.char_count_frame = ttk.Frame(input_frame)
+        self.char_count_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.char_count_var = tk.StringVar()
+        self.char_count_label = ttk.Label(self.char_count_frame, textvariable=self.char_count_var, 
+                                          font=('Inter', 9), foreground='#666666')
+        self.char_count_label.pack(side=tk.RIGHT)
+        
+        # Update character count initially
+        self.update_char_count()
 
         # Send button with loading indicator
         send_frame = ttk.Frame(input_frame)
@@ -386,7 +447,7 @@ class MainApplication:
                     self.file_list.file_listbox.insert(tk.END, f"{file_info['name']} ({file_info['size_str']})")
                     added_files.append(file_info['name'])
                 else:
-                    messagebox.showerror("Invalid File", f"{os.path.basename(file_path)}: {message}")
+                    self.notification_manager.show_error(f"{os.path.basename(file_path)}: {message}")
 
         if added_files:
             self.response_display.add_message(f"Files added: {', '.join(added_files)}", "system")
@@ -408,7 +469,8 @@ class MainApplication:
                 self.status_bar.set_status("Ready")
                 return True
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to initialize Gemini client: {e}")
+                self.notification_manager.show_error(f"Failed to initialize Gemini client: {e}")
+                self.status_notification.show_temporary_status("Client initialization failed")
                 return False
         else:
             self.status_bar.set_status("API key not configured")
@@ -469,12 +531,14 @@ class MainApplication:
         """Send message to Gemini"""
         if not self.gemini_client:
             if not self.initialize_client():
-                messagebox.showerror("Error", "Please configure your API key in Settings.")
+                self.notification_manager.show_warning("Please configure your API key in Settings.", 
+                                                       action_text="Open Settings", 
+                                                       action_callback=self.show_settings)
                 return
         
         message = self.input_text.get(1.0, tk.END).strip()
         if not message and self.file_list.get_file_count() == 0:
-            messagebox.showwarning("Warning", "Please enter a message or attach files.")
+            self.notification_manager.show_warning("Please enter a message or attach files.")
             return
 
         # Show loading indicator
@@ -648,7 +712,7 @@ class MainApplication:
                 image = Image.open(file_path)
                 ImageViewer(self.root, image, f"Preview: {file_info['name']}")
             except Exception as e:
-                messagebox.showerror("Error", f"Cannot preview image: {e}")
+                self.notification_manager.show_error(f"Cannot preview image: {e}")
         else:
             # Show text preview dialog
             preview_text = self.file_manager.get_file_preview(file_path)
@@ -685,7 +749,7 @@ class MainApplication:
                 self.root.clipboard_append(content)
                 self.status_bar.set_status("Response copied to clipboard")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to copy: {e}")
+            self.notification_manager.show_error(f"Failed to copy: {e}")
     
     def save_current_response(self):
         """Save current conversation to file"""
@@ -694,11 +758,11 @@ class MainApplication:
             try:
                 filename = f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 saved_path = self.file_manager.save_text(content, filename)
-                messagebox.showinfo("Saved", f"Conversation saved to: {saved_path}")
+                self.notification_manager.show_success(f"Conversation saved to: {saved_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save: {e}")
+                self.notification_manager.show_error(f"Failed to save: {e}")
         else:
-            messagebox.showwarning("Warning", "No conversation to save.")
+            self.notification_manager.show_warning("No conversation to save.")
 
     def save_last_response(self):
         """Save only the last assistant response"""
@@ -722,23 +786,25 @@ class MainApplication:
             try:
                 filename = f"last_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 saved_path = self.file_manager.save_text(last_response, filename)
-                messagebox.showinfo("Saved", f"Last response saved to: {saved_path}")
+                self.notification_manager.show_success(f"Last response saved to: {saved_path}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save: {e}")
+                self.notification_manager.show_error(f"Failed to save: {e}")
         else:
-            messagebox.showwarning("Warning", "No assistant response found to save.")
+            self.notification_manager.show_warning("No assistant response found to save.")
 
     def send_message(self):
         """Send message to Gemini"""
         if not self.gemini_client:
             if not self.initialize_client():
-                messagebox.showerror("Error", "Please configure your API key in Settings.")
+                self.notification_manager.show_warning("Please configure your API key in Settings.", 
+                                                       action_text="Open Settings", 
+                                                       action_callback=self.show_settings)
                 logging.error("Failed to send message: API key not configured")
                 return
 
         message = self.input_text.get(1.0, tk.END).strip()
         if not message and self.file_list.get_file_count() == 0:
-            messagebox.showwarning("Warning", "Please enter a message or attach files.")
+            self.notification_manager.show_warning("Please enter a message or attach files.")
             return
 
         logging.info(f"User sending message: {message[:50]}{'...' if len(message) > 50 else ''}")
@@ -800,6 +866,77 @@ class MainApplication:
         self.input_text.mark_set(tk.INSERT, "1.0")
         self.input_text.see(tk.INSERT)
 
+    def undo_text(self):
+        """Undo last text operation"""
+        try:
+            self.input_text.edit_undo()
+        except tk.TclError:
+            pass
+
+    def redo_text(self):
+        """Redo last undone text operation"""
+        try:
+            self.input_text.edit_redo()
+        except tk.TclError:
+            pass
+
+    def clear_input_text(self):
+        """Clear all text in input field"""
+        self.input_text.delete(1.0, tk.END)
+        self.update_char_count()
+
+    def insert_newline(self):
+        """Insert a newline at cursor position"""
+        self.input_text.insert(tk.INSERT, "\n")
+        return "break"  # Prevent default behavior
+
+    def auto_resize_input(self, event=None):
+        """Auto-resize input text widget based on content"""
+        content = self.input_text.get(1.0, tk.END)
+        lines = content.count('\n') + 1
+        
+        # Limit height between 4 and 12 lines
+        new_height = max(4, min(12, lines))
+        current_height = int(self.input_text.cget('height'))
+        
+        if new_height != current_height:
+            self.input_text.configure(height=new_height)
+        
+        # Update character count
+        self.update_char_count()
+
+    def update_char_count(self):
+        """Update character count display"""
+        content = self.input_text.get(1.0, tk.END)
+        char_count = len(content) - 1  # Subtract 1 for the trailing newline
+        word_count = len(content.split()) if content.strip() else 0
+        
+        self.char_count_var.set(f"{char_count} chars, {word_count} words")
+
+    def show_input_context_menu(self, event):
+        """Show context menu for input text"""
+        try:
+            # Update menu item states based on current selection and clipboard
+            has_selection = bool(self.input_text.tag_ranges(tk.SEL))
+            
+            # Enable/disable menu items
+            self.input_context_menu.entryconfig("Cut", state=tk.NORMAL if has_selection else tk.DISABLED)
+            self.input_context_menu.entryconfig("Copy", state=tk.NORMAL if has_selection else tk.DISABLED)
+            
+            # Check if clipboard has content
+            try:
+                self.root.clipboard_get()
+                self.input_context_menu.entryconfig("Paste", state=tk.NORMAL)
+            except tk.TclError:
+                self.input_context_menu.entryconfig("Paste", state=tk.DISABLED)
+            
+            # Show menu
+            self.input_context_menu.tk_popup(event.x_root, event.y_root)
+        except Exception as e:
+            print(f"Error showing context menu: {e}")
+        finally:
+            self.input_context_menu.grab_release()
+
     def show_settings(self):
         """Show settings dialog"""
         dialog = SettingsDialog(self.root, self.config_manager)
@@ -854,7 +991,7 @@ class MainApplication:
     def show_file_manager(self):
         """Show file manager window"""
         # This could be expanded to show a full file manager
-        messagebox.showinfo("File Manager", "File management is available through the left panel.")
+        self.notification_manager.show_info("File management is available through the left panel.")
     
     def show_about(self):
         """Show about dialog"""
@@ -873,6 +1010,7 @@ Features:
 Version: 1.0.0
 Built with Python and Tkinter"""
         
+        # Keep about dialog as messagebox since it's a detailed informational dialog
         messagebox.showinfo("About", about_text)
     
     def on_window_configure(self, event):
@@ -909,9 +1047,11 @@ Built with Python and Tkinter"""
         """Run the application"""
         # Check for API key on startup
         if not self.config_manager.is_api_key_configured():
-            messagebox.showwarning(
-                "API Key Required",
-                "Please configure your Gemini API key in Settings to use this application."
+            self.notification_manager.show_warning(
+                "Please configure your Gemini API key in Settings to use this application.",
+                action_text="Open Settings",
+                action_callback=self.show_settings,
+                duration=0  # Permanent until dismissed
             )
         
         # Start main loop

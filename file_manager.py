@@ -19,6 +19,16 @@ from PIL import Image, ImageTk
 import pygame
 import io
 import tkinterdnd2 as tkdnd
+import subprocess
+import sys
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as ReportLabImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import markdown
+import docx
 
 
 class FileManager:
@@ -272,21 +282,23 @@ class FileManager:
             except:
                 pass
         self.temp_files.clear()
-    
+
     def validate_file(self, file_path: str) -> Tuple[bool, str]:
         """Validate file for upload"""
         if not os.path.exists(file_path):
             return False, "File does not exist"
-        
+
         file_size = os.path.getsize(file_path)
         if file_size > 20 * 1024 * 1024:  # 20MB limit
             return False, "File size exceeds 20MB limit"
-        
+
         if file_size == 0:
             return False, "File is empty"
-        
+
         # Check if file type is supported
         mime_type, _ = mimetypes.guess_type(file_path)
+        file_extension = os.path.splitext(file_path)[1].lower()
+
         supported_types = [
             'application/pdf',
             'text/plain',
@@ -316,11 +328,23 @@ class FileManager:
             'audio/wav',
             'audio/ogg'
         ]
-        
-        if mime_type not in supported_types:
-            return False, f"Unsupported file type: {mime_type}"
-        
-        return True, "File is valid"
+
+        # Additional check for file extensions that might not have proper MIME types
+        supported_extensions = ['.md', '.py', '.txt', '.csv', '.html', '.css', '.js', '.json', '.xml']
+
+        if mime_type in supported_types or file_extension in supported_extensions:
+            return True, "File is valid"
+        else:
+            return False, f"Unsupported file type: {mime_type or file_extension}"
+
+    def can_convert_to_pdf(self, file_path: str) -> bool:
+        """Check if file can be converted to PDF"""
+        file_extension = os.path.splitext(file_path)[1].lower()
+        convertible_extensions = [
+            '.md', '.py', '.txt', '.csv', '.html', '.css', '.js', '.json', '.xml',
+            '.docx', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'
+        ]
+        return file_extension in convertible_extensions
     
     def get_file_preview(self, file_path: str, max_chars=500) -> str:
         """Get file preview text"""
@@ -339,6 +363,492 @@ class FileManager:
                 return f"[Document: {os.path.basename(file_path)}]"
         except Exception as e:
             return f"[Error reading file: {e}]"
+
+    def convert_to_pdf(self, file_path: str, output_path: str = None) -> str:
+        """Convert various file types to PDF"""
+        if output_path is None:
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = str(self.downloads_dir / f"{base_name}_converted_{timestamp}.pdf")
+
+        file_extension = os.path.splitext(file_path)[1].lower()
+
+        try:
+            if file_extension == '.md':
+                return self._convert_markdown_to_pdf(file_path, output_path)
+            elif file_extension == '.py':
+                return self._convert_code_to_pdf(file_path, output_path)
+            elif file_extension == '.docx':
+                return self._convert_docx_to_pdf(file_path, output_path)
+            elif file_extension in ['.txt', '.csv', '.html', '.css', '.js', '.json', '.xml']:
+                return self._convert_text_to_pdf(file_path, output_path)
+            elif self._is_image_file(file_path):
+                return self._convert_image_to_pdf(file_path, output_path)
+            else:
+                raise Exception(f"Unsupported file type for PDF conversion: {file_extension}")
+
+        except Exception as e:
+            raise Exception(f"Failed to convert {file_path} to PDF: {str(e)}")
+
+    def _convert_markdown_to_pdf(self, file_path: str, output_path: str) -> str:
+        """Convert Markdown file to PDF"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
+
+        # Convert markdown to HTML
+        html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code', 'toc'])
+
+        # Create PDF
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Add title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=20,
+        )
+        story.append(Paragraph(f"Converted from: {os.path.basename(file_path)}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Convert HTML to PDF paragraphs (basic conversion)
+        # Remove HTML tags and convert to plain text for simplicity
+        import re
+        text_content = re.sub('<[^<]+?>', '', html_content)
+        paragraphs = text_content.split('\n\n')
+
+        for para in paragraphs:
+            if para.strip():
+                story.append(Paragraph(para.strip(), styles['Normal']))
+                story.append(Spacer(1, 6))
+
+        doc.build(story)
+        return output_path
+
+    def _convert_code_to_pdf(self, file_path: str, output_path: str) -> str:
+        """Convert code file to PDF with syntax highlighting"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            code_content = f.read()
+
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Add title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=20,
+        )
+        story.append(Paragraph(f"Code File: {os.path.basename(file_path)}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Create code style
+        code_style = ParagraphStyle(
+            'Code',
+            parent=styles['Normal'],
+            fontName='Courier',
+            fontSize=8,
+            leftIndent=20,
+            rightIndent=20,
+            spaceAfter=6,
+            borderWidth=1,
+            borderColor='gray',
+            borderPadding=5,
+        )
+
+        # Split code into lines and add to PDF
+        lines = code_content.split('\n')
+        for i, line in enumerate(lines, 1):
+            # Escape special characters
+            line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(f"{i:4d}: {line}", code_style))
+
+        doc.build(story)
+        return output_path
+
+    def _convert_docx_to_pdf(self, file_path: str, output_path: str) -> str:
+        """Convert DOCX file to PDF"""
+        try:
+            # Try using python-docx to extract text
+            doc = docx.Document(file_path)
+
+            pdf_doc = SimpleDocTemplate(output_path, pagesize=letter)
+            styles = getSampleStyleSheet()
+            story = []
+
+            # Add title
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=16,
+                spaceAfter=20,
+            )
+            story.append(Paragraph(f"Converted from: {os.path.basename(file_path)}", title_style))
+            story.append(Spacer(1, 12))
+
+            # Extract paragraphs
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    story.append(Paragraph(paragraph.text, styles['Normal']))
+                    story.append(Spacer(1, 6))
+
+            pdf_doc.build(story)
+            return output_path
+
+        except Exception as e:
+            # Fallback: try using LibreOffice if available
+            return self._convert_with_libreoffice(file_path, output_path)
+
+    def _convert_text_to_pdf(self, file_path: str, output_path: str) -> str:
+        """Convert text file to PDF"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Add title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=20,
+        )
+        story.append(Paragraph(f"Text File: {os.path.basename(file_path)}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Add content
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            if para.strip():
+                # Replace line breaks with proper spacing
+                para = para.replace('\n', '<br/>')
+                story.append(Paragraph(para, styles['Normal']))
+                story.append(Spacer(1, 6))
+
+        doc.build(story)
+        return output_path
+
+    def _convert_image_to_pdf(self, file_path: str, output_path: str) -> str:
+        """Convert image file to PDF"""
+        doc = SimpleDocTemplate(output_path, pagesize=letter)
+        story = []
+
+        # Add title
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=20,
+        )
+        story.append(Paragraph(f"Image: {os.path.basename(file_path)}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Add image
+        try:
+            # Calculate image size to fit on page
+            img = Image.open(file_path)
+            img_width, img_height = img.size
+
+            # Calculate scaling to fit on page (leave margins)
+            max_width = 6 * inch  # 8.5" - 2.5" margins
+            max_height = 8 * inch  # 11" - 3" margins
+
+            scale = min(max_width / img_width, max_height / img_height, 1.0)
+
+            scaled_width = img_width * scale
+            scaled_height = img_height * scale
+
+            # Add image to PDF
+            pdf_image = ReportLabImage(file_path, width=scaled_width, height=scaled_height)
+            story.append(pdf_image)
+
+        except Exception as e:
+            # If image can't be added, add error message
+            story.append(Paragraph(f"Error loading image: {str(e)}", styles['Normal']))
+
+        doc.build(story)
+        return output_path
+
+    def _convert_with_libreoffice(self, file_path: str, output_path: str) -> str:
+        """Try to convert using LibreOffice (if available)"""
+        try:
+            # Try to use LibreOffice for conversion
+            cmd = [
+                'libreoffice',
+                '--headless',
+                '--convert-to', 'pdf',
+                '--outdir', os.path.dirname(output_path),
+                file_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0:
+                # LibreOffice creates PDF with same name as input file
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+                generated_pdf = os.path.join(os.path.dirname(output_path), f"{base_name}.pdf")
+
+                if os.path.exists(generated_pdf):
+                    # Rename to desired output path
+                    if generated_pdf != output_path:
+                        shutil.move(generated_pdf, output_path)
+                    return output_path
+
+            raise Exception("LibreOffice conversion failed")
+
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            # LibreOffice not available or failed, use fallback
+            return self._convert_text_to_pdf(file_path, output_path)
+
+def convert_to_pdf(self, file_path: str, output_path: str = None) -> str:
+    """Convert various file types to PDF"""
+    if output_path is None:
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = str(self.downloads_dir / f"{base_name}_converted_{timestamp}.pdf")
+
+    file_extension = os.path.splitext(file_path)[1].lower()
+
+    try:
+        if file_extension == '.md':
+            return self._convert_markdown_to_pdf(file_path, output_path)
+        elif file_extension == '.py':
+            return self._convert_code_to_pdf(file_path, output_path)
+        elif file_extension == '.docx':
+            return self._convert_docx_to_pdf(file_path, output_path)
+        elif file_extension in ['.txt', '.csv', '.html', '.css', '.js', '.json', '.xml']:
+            return self._convert_text_to_pdf(file_path, output_path)
+        elif self._is_image_file(file_path):
+            return self._convert_image_to_pdf(file_path, output_path)
+        else:
+            raise Exception(f"Unsupported file type for PDF conversion: {file_extension}")
+
+    except Exception as e:
+        raise Exception(f"Failed to convert {file_path} to PDF: {str(e)}")
+
+def _convert_markdown_to_pdf(self, file_path: str, output_path: str) -> str:
+    """Convert Markdown file to PDF"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        md_content = f.read()
+
+    # Convert markdown to HTML
+    html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code', 'toc'])
+
+    # Create PDF
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Add title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=20,
+    )
+    story.append(Paragraph(f"Converted from: {os.path.basename(file_path)}", title_style))
+    story.append(Spacer(1, 12))
+
+    # Convert HTML to PDF paragraphs (basic conversion)
+    # Remove HTML tags and convert to plain text for simplicity
+    import re
+    text_content = re.sub('<[^<]+?>', '', html_content)
+    paragraphs = text_content.split('\n\n')
+
+    for para in paragraphs:
+        if para.strip():
+            story.append(Paragraph(para.strip(), styles['Normal']))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+    return output_path
+
+def _convert_code_to_pdf(self, file_path: str, output_path: str) -> str:
+    """Convert code file to PDF with syntax highlighting"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        code_content = f.read()
+
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Add title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=20,
+    )
+    story.append(Paragraph(f"Code File: {os.path.basename(file_path)}", title_style))
+    story.append(Spacer(1, 12))
+
+    # Create code style
+    code_style = ParagraphStyle(
+        'Code',
+        parent=styles['Normal'],
+        fontName='Courier',
+        fontSize=8,
+        leftIndent=20,
+        rightIndent=20,
+        spaceAfter=6,
+        borderWidth=1,
+        borderColor='gray',
+        borderPadding=5,
+    )
+
+    # Split code into lines and add to PDF
+    lines = code_content.split('\n')
+    for i, line in enumerate(lines, 1):
+        # Escape special characters
+        line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        story.append(Paragraph(f"{i:4d}: {line}", code_style))
+
+    doc.build(story)
+    return output_path
+
+def _convert_docx_to_pdf(self, file_path: str, output_path: str) -> str:
+    """Convert DOCX file to PDF"""
+    try:
+        # Try using python-docx to extract text
+        doc = docx.Document(file_path)
+
+        pdf_doc = SimpleDocTemplate(output_path, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Add title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=20,
+        )
+        story.append(Paragraph(f"Converted from: {os.path.basename(file_path)}", title_style))
+        story.append(Spacer(1, 12))
+
+        # Extract paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                story.append(Paragraph(paragraph.text, styles['Normal']))
+                story.append(Spacer(1, 6))
+
+        pdf_doc.build(story)
+        return output_path
+
+    except Exception as e:
+        # Fallback: try using LibreOffice if available
+        return self._convert_with_libreoffice(file_path, output_path)
+
+def _convert_text_to_pdf(self, file_path: str, output_path: str) -> str:
+    """Convert text file to PDF"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Add title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=20,
+    )
+    story.append(Paragraph(f"Text File: {os.path.basename(file_path)}", title_style))
+    story.append(Spacer(1, 12))
+
+    # Add content
+    paragraphs = content.split('\n\n')
+    for para in paragraphs:
+        if para.strip():
+            # Replace line breaks with proper spacing
+            para = para.replace('\n', '<br/>')
+            story.append(Paragraph(para, styles['Normal']))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+    return output_path
+
+def _convert_image_to_pdf(self, file_path: str, output_path: str) -> str:
+    """Convert image file to PDF"""
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    story = []
+
+    # Add title
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=20,
+    )
+    story.append(Paragraph(f"Image: {os.path.basename(file_path)}", title_style))
+    story.append(Spacer(1, 12))
+
+    # Add image
+    try:
+        # Calculate image size to fit on page
+        img = Image.open(file_path)
+        img_width, img_height = img.size
+
+        # Calculate scaling to fit on page (leave margins)
+        max_width = 6 * inch  # 8.5" - 2.5" margins
+        max_height = 8 * inch  # 11" - 3" margins
+
+        scale = min(max_width / img_width, max_height / img_height, 1.0)
+
+        scaled_width = img_width * scale
+        scaled_height = img_height * scale
+
+        # Add image to PDF
+        pdf_image = ReportLabImage(file_path, width=scaled_width, height=scaled_height)
+        story.append(pdf_image)
+
+    except Exception as e:
+        # If image can't be added, add error message
+        story.append(Paragraph(f"Error loading image: {str(e)}", styles['Normal']))
+
+    doc.build(story)
+    return output_path
+
+def _convert_with_libreoffice(self, file_path: str, output_path: str) -> str:
+    """Try to convert using LibreOffice (if available)"""
+    try:
+        # Try to use LibreOffice for conversion
+        cmd = [
+            'libreoffice',
+            '--headless',
+            '--convert-to', 'pdf',
+            '--outdir', os.path.dirname(output_path),
+            file_path
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        if result.returncode == 0:
+            # LibreOffice creates PDF with same name as input file
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            generated_pdf = os.path.join(os.path.dirname(output_path), f"{base_name}.pdf")
+
+            if os.path.exists(generated_pdf):
+                # Rename to desired output path
+                if generated_pdf != output_path:
+                    shutil.move(generated_pdf, output_path)
+                return output_path
+
+        raise Exception("LibreOffice conversion failed")
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        # LibreOffice not available or failed, use fallback
+        return self._convert_text_to_pdf(file_path, output_path)
 
 
 class FileListWidget:
@@ -392,8 +902,10 @@ class FileListWidget:
         # Context menu
         self.context_menu = tk.Menu(self.file_listbox, tearoff=0)
         self.context_menu.add_command(label="Preview", command=self.preview_file)
-        self.context_menu.add_command(label="Remove", command=self.remove_file)
         self.context_menu.add_separator()
+        self.context_menu.add_command(label="Convert to PDF", command=self.convert_to_pdf)  # NEW
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Remove", command=self.remove_file)
         self.context_menu.add_command(label="Show in Explorer", command=self.show_in_explorer)
 
         self.file_listbox.bind("<Button-3>", self.show_context_menu)
@@ -521,3 +1033,38 @@ class FileListWidget:
     def grid(self, **kwargs):
         """Grid the widget"""
         self.frame.grid(**kwargs)
+
+    def convert_to_pdf(self):
+        """Convert selected file to PDF"""
+        selection = self.file_listbox.curselection()
+        if selection:
+            file_info = self.files[selection[0]]
+            file_path = file_info['path']
+
+            if self.file_manager.can_convert_to_pdf(file_path):
+                try:
+                    # Show progress (optional)
+                    import tkinter.messagebox as msgbox
+
+                    # Convert to PDF
+                    pdf_path = self.file_manager.convert_to_pdf(file_path)
+
+                    # Ask if user wants to add PDF to file list
+                    if msgbox.askyesno("PDF Created",
+                                       f"PDF created successfully at:\n{pdf_path}\n\n"
+                                       f"Would you like to add the PDF to your file list?"):
+                        # Add PDF to file list
+                        if pdf_path not in [f['path'] for f in self.files]:
+                            pdf_info = self.file_manager.get_file_info(pdf_path)
+                            self.files.append(pdf_info)
+                            self.file_listbox.insert(tk.END, f"{pdf_info['name']} ({pdf_info['size_str']})")
+
+                            if self.callbacks['on_file_select']:
+                                self.callbacks['on_file_select'](self.get_selected_files())
+                    else:
+                        msgbox.showinfo("PDF Created", f"PDF saved to:\n{pdf_path}")
+
+                except Exception as e:
+                    msgbox.showerror("Conversion Error", f"Failed to convert file to PDF:\n{str(e)}")
+            else:
+                msgbox.showwarning("Not Supported", "This file type cannot be converted to PDF.")

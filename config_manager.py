@@ -177,7 +177,7 @@ class ConfigManager:
             return {
                 "bg": "#2b2b2b",
                 "fg": "#ffffff",
-                "select_bg": "#404040",
+                "select_bg": "#0078d4",
                 "select_fg": "#ffffff",
                 "entry_bg": "#404040",
                 "entry_fg": "#ffffff",
