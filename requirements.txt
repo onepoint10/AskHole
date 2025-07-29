@@ -17,6 +17,7 @@ pygame>=2.1.0
 
 # GUI framework (usually included with Python)
 # tkinter - comes with Python standard library
+tkinterdnd2
 
 # Optional: for better file type detection
 python-magic>=0.4.27

@@ -217,7 +217,7 @@ class MainApplication:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="New Session", command=self.new_session)
-        file_menu.add_command(label="Save Response", command=self.save_current_response)
+        file_menu.add_command(label="Save Chat", command=self.save_current_response)
         file_menu.add_separator()
         file_menu.add_command(label="Settings", command=self.show_settings)
         file_menu.add_separator()
@@ -227,7 +227,7 @@ class MainApplication:
         edit_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Clear Chat", command=self.clear_chat)
-        edit_menu.add_command(label="Copy Response", command=self.copy_response)
+        edit_menu.add_command(label="Copy Chat", command=self.copy_response)
 
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0)
@@ -569,6 +569,8 @@ class MainApplication:
 
     def _send_message_thread(self, message: str, mode: str):
         """Send message in separate thread"""
+        error_message = None
+
         try:
             logging.info(f"Sending message in {mode} mode with model {self.model_var.get()}")
 
@@ -587,7 +589,8 @@ class MainApplication:
                 return
             elif mode == "edit":
                 if not files:
-                    self._show_error("Please attach an image file for editing.")
+                    error_message = "Please attach an image file for editing."
+                    self.root.after(0, lambda msg=error_message: self._show_error(msg))
                     return
                 images, description = self.gemini_client.edit_image(files[0], message)
                 self._handle_image_response(images, description)
@@ -599,7 +602,7 @@ class MainApplication:
                 response = self.gemini_client.generate_text(message, model, files)
 
             # Display response
-            self.root.after(0, lambda: self._display_response(response))
+            self.root.after(0, lambda resp=response: self._display_response(resp))
 
             # NEW: Auto-clear files if option is enabled
             if self.config_manager.get("auto_clear_files", False):
@@ -609,56 +612,155 @@ class MainApplication:
             logging.info("Message sent and response received successfully")
 
         except Exception as e:
-            logging.error(f"Error in _send_message_thread: {e}")
-            self.root.after(0, lambda: self._show_error(str(e)))
+            error_message = str(e)
+            logging.error(f"Error in _send_message_thread: {error_message}")
+
+            # Parse Gemini API errors for better user messages
+            parsed_error = self._parse_api_error(error_message)
+            self.root.after(0, lambda msg=parsed_error: self._show_error(msg))
+
         finally:
             self.root.after(0, self._reset_send_button)
-    
+
+    def _parse_api_error(self, error_message: str) -> str:
+        """Parse API error messages to provide user-friendly descriptions"""
+
+        # Common API error patterns and their user-friendly messages
+        error_patterns = {
+            "503 UNAVAILABLE": {
+                "title": "Service Temporarily Unavailable",
+                "message": "The Gemini API is currently overloaded. Please try again in a few moments.",
+                "suggestion": "• Wait 30-60 seconds and try again\n• Try using a different model if available"
+            },
+            "400 FAILED_PRECONDITION": {
+                "title": "Request Not Supported",
+                "message": "Your request cannot be processed due to API restrictions.",
+                "suggestion": "• Check if your location supports this API\n• Verify your API key has proper permissions\n• Try a different model or request type"
+            },
+            "401 UNAUTHENTICATED": {
+                "title": "Authentication Error",
+                "message": "Your API key is invalid or has expired.",
+                "suggestion": "• Check your API key in Settings\n• Verify the key is correctly copied\n• Generate a new API key if needed"
+            },
+            "403 PERMISSION_DENIED": {
+                "title": "Permission Denied",
+                "message": "Your API key doesn't have permission for this operation.",
+                "suggestion": "• Check your API key permissions\n• Verify your account has access to this model\n• Contact support if the issue persists"
+            },
+            "429 RESOURCE_EXHAUSTED": {
+                "title": "Rate Limit Exceeded",
+                "message": "You've exceeded the API rate limits.",
+                "suggestion": "• Wait before making another request\n• Consider upgrading your API plan\n• Reduce request frequency"
+            },
+            "404 NOT_FOUND": {
+                "title": "Model Not Found",
+                "message": "The requested model is not available.",
+                "suggestion": "• Try a different model\n• Check if the model name is correct\n• Verify your API access level"
+            }
+        }
+
+        # Extract error details from the message
+        original_error = error_message
+
+        # Check for common error patterns
+        for pattern, details in error_patterns.items():
+            if pattern in error_message:
+                formatted_error = f"🚫 {details['title']}\n\n"
+                formatted_error += f"Problem: {details['message']}\n\n"
+                formatted_error += f"Solutions:\n{details['suggestion']}\n\n"
+                formatted_error += f"Technical Details: {original_error}"
+                return formatted_error
+
+        # Handle network-related errors
+        if "connection" in error_message.lower() or "network" in error_message.lower():
+            return (f"🌐 Network Connection Error\n\n"
+                    f"Problem: Unable to connect to the Gemini API.\n\n"
+                    f"Solutions:\n"
+                    f"• Check your internet connection\n"
+                    f"• Verify firewall settings aren't blocking the connection\n"
+                    f"• Try again in a few moments\n\n"
+                    f"Technical Details: {original_error}")
+
+        # Handle timeout errors
+        if "timeout" in error_message.lower():
+            return (f"⏱️ Request Timeout\n\n"
+                    f"Problem: The request took too long to complete.\n\n"
+                    f"Solutions:\n"
+                    f"• Try with a shorter message or fewer files\n"
+                    f"• Check your internet connection\n"
+                    f"• Retry the request\n\n"
+                    f"Technical Details: {original_error}")
+
+        # Handle file-related errors
+        if "file" in error_message.lower() and ("size" in error_message.lower() or "format" in error_message.lower()):
+            return (f"📁 File Error\n\n"
+                    f"Problem: There's an issue with the uploaded file.\n\n"
+                    f"Solutions:\n"
+                    f"• Check file size (must be under API limits)\n"
+                    f"• Verify file format is supported\n"
+                    f"• Try with a different file\n\n"
+                    f"Technical Details: {original_error}")
+
+        # Default error message for unknown errors
+        return (f"❌ Unexpected Error\n\n"
+                f"Problem: An unexpected error occurred while processing your request.\n\n"
+                f"Solutions:\n"
+                f"• Try your request again\n"
+                f"• Check your internet connection\n"
+                f"• Verify your API key in Settings\n"
+                f"• Contact support if the issue persists\n\n"
+                f"Technical Details: {original_error}")
+
     def _handle_image_response(self, images: List, description: str):
         """Handle image generation/editing response"""
-        self.root.after(0, lambda: self._display_response(description))
-        
+        self.root.after(0, lambda desc=description: self._display_response(desc))
+
         for i, image in enumerate(images):
             # Save image
             try:
-                filename = f"generated_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i+1}.png"
+                filename = f"generated_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i + 1}.png"
                 saved_path = self.file_manager.save_image(image, filename)
-                
+
                 # Show image viewer
                 self.root.after(0, lambda img=image: ImageViewer(self.root, img))
-                
+
                 # Add system message about saved image
-                self.root.after(0, lambda path=saved_path: 
-                    self.response_display.add_message(f"Image saved to: {path}", "system"))
-                
+                self.root.after(0, lambda path=saved_path:
+                self.response_display.add_message(f"Image saved to: {path}", "system"))
+
             except Exception as e:
-                self.root.after(0, lambda err=str(e): 
-                    self.response_display.add_message(f"Error saving image: {err}", "error"))
-    
+                error_msg = str(e)
+                self.root.after(0, lambda err=error_msg:
+                self.response_display.add_message(f"Error saving image: {err}", "error"))
+
     def _handle_audio_generation(self, message: str):
         """Handle audio generation"""
+
         def audio_callback(audio_data, error):
             if error:
-                self.root.after(0, lambda: self._show_error(f"Audio generation failed: {error}"))
+                error_msg = f"Audio generation failed: {error}"
+                self.root.after(0, lambda msg=error_msg: self._show_error(msg))
             else:
                 try:
                     # Save audio
                     filename = f"generated_audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
                     saved_path = self.file_manager.save_audio(audio_data, filename)
-                    
+
                     # Show audio player
-                    self.root.after(0, lambda: self._show_audio_player_with_file(saved_path))
-                    
+                    self.root.after(0, lambda path=saved_path: self._show_audio_player_with_file(path))
+
                     # Add system message
-                    self.root.after(0, lambda: 
-                        self.response_display.add_message(f"Audio generated and saved to: {saved_path}", "system"))
-                    
+                    success_msg = f"Audio generated and saved to: {saved_path}"
+                    self.root.after(0, lambda msg=success_msg:
+                    self.response_display.add_message(msg, "system"))
+
                 except Exception as e:
-                    self.root.after(0, lambda: 
-                        self.response_display.add_message(f"Error saving audio: {str(e)}", "error"))
-            
+                    error_msg = f"Error saving audio: {str(e)}"
+                    self.root.after(0, lambda msg=error_msg:
+                    self.response_display.add_message(msg, "error"))
+
             self.root.after(0, self._reset_send_button)
-        
+
         self.gemini_async.generate_audio_sync(message, audio_callback)
 
     def _display_response(self, response: str):
@@ -667,8 +769,32 @@ class MainApplication:
         logging.info("Response displayed to user")
 
     def _show_error(self, error_message: str):
-        """Show error message"""
+        """Show error message with enhanced formatting"""
+        # Add error to response display with better formatting
         self.response_display.add_message(error_message, "error")
+
+        # Also show a popup for critical errors that need immediate attention
+        if any(keyword in error_message.lower() for keyword in
+               ["authentication", "api key", "permission", "unauthenticated"]):
+            # Show popup for auth-related errors
+            self.notification_manager.show_error(
+                "API Authentication Issue - Check your settings!",
+                action_text="Open Settings",
+                action_callback=self.show_settings
+            )
+        elif "503" in error_message or "overloaded" in error_message.lower():
+            # Show notification for service issues
+            self.notification_manager.show_warning(
+                "Gemini API is temporarily overloaded. Trying again in a moment...",
+                duration=5000
+            )
+        elif "network" in error_message.lower() or "connection" in error_message.lower():
+            # Show notification for network issues
+            self.notification_manager.show_warning(
+                "Network connection issue. Please check your internet connection.",
+                duration=5000
+            )
+
         logging.error(f"Error shown to user: {error_message}")
 
     def _reset_send_button(self):

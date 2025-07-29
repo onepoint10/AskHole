@@ -10,22 +10,24 @@ import threading
 from datetime import datetime
 from PIL import Image, ImageTk
 import io
+import re
+import uuid
 
 
 class ModernButton(tk.Button):
     """Modern styled button with hover effects"""
-    
+
     def __init__(self, parent, text="", command=None, style="primary", **kwargs):
         self.style = style
         self.default_bg = kwargs.get('bg', '#0078d4' if style == 'primary' else '#f0f0f0')
         self.hover_bg = self._get_hover_color(self.default_bg)
-        
-        super().__init__(parent, text=text, command=command, 
-                        relief=tk.FLAT, bd=0, cursor='hand2', **kwargs)
-        
+
+        super().__init__(parent, text=text, command=command,
+                         relief=tk.FLAT, bd=0, cursor='hand2', **kwargs)
+
         self.bind('<Enter>', self.on_enter)
         self.bind('<Leave>', self.on_leave)
-    
+
     def _get_hover_color(self, color):
         """Generate hover color"""
         if color == '#0078d4':  # Primary blue
@@ -33,11 +35,11 @@ class ModernButton(tk.Button):
         elif color == '#f0f0f0':  # Light gray
             return '#e0e0e0'
         return color
-    
+
     def on_enter(self, event):
         """Handle mouse enter"""
         self.configure(bg=self.hover_bg)
-    
+
     def on_leave(self, event):
         """Handle mouse leave"""
         self.configure(bg=self.default_bg)
@@ -394,6 +396,8 @@ class ResponseDisplay(scrolledtext.ScrolledText):
 
         self.configure(state=tk.DISABLED, wrap=tk.WORD, font=('JetBrains Mono', 10))
 
+        self.code_block_buttons = {}  # Track copy buttons for each code block
+
         # Configure text tags for styling
         self.tag_configure("user", foreground="#0078d4", font=("Inter", 11, "bold"))
         self.tag_configure("assistant", foreground="#000000", font=("Inter", 11))
@@ -469,6 +473,15 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         except:
             pass
 
+        button_bg = "#f0f0f0" if colors.get('bg') != '#2b2b2b' else "#404040"
+        button_fg = "#666666" if colors.get('bg') != '#2b2b2b' else "#cccccc"
+
+        for block_info in self.code_block_buttons.values():
+            try:
+                block_info['button'].configure(bg=button_bg, fg=button_fg)
+            except:
+                pass
+
         # Update tag colors for dark theme
         if colors.get('bg') == '#2b2b2b':  # Dark theme
             self.tag_configure("user", foreground="#4da6ff", font=("Inter", 11, "normal"))
@@ -487,8 +500,8 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             # Setup light theme Python highlighting
             self.setup_python_highlighting_tags()
 
-    def highlight_python_code(self, text: str, start_index: str) -> str:
-        """Apply Python syntax highlighting to code text"""
+    def highlight_python_code_in_range(self, start_pos: str, end_pos: str):
+        """Apply Python syntax highlighting to code in the specified range"""
         # Python keywords
         keywords = [
             'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class',
@@ -507,184 +520,215 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             'tuple', 'type', 'vars', 'zip'
         ]
 
-        lines = text.split('\n')
-        current_line = 0
+        # Get the actual text content in the range
+        content = self.get(start_pos, end_pos)
 
-        for line in lines:
-            line_start = f"{start_index.split('.')[0]}.{int(start_index.split('.')[1]) + current_line}"
+        # Process line by line
+        current_pos = start_pos
+        lines = content.split('\n')
 
-            # Track position in line
-            char_pos = 0
+        for line_num, line in enumerate(lines):
+            if not line.strip():
+                # Move to next line
+                current_pos = f"{current_pos} lineend +1c"
+                continue
 
-            # Find and highlight different elements
-            i = 0
-            while i < len(line):
-                char = line[i]
+            line_start = current_pos
 
-                # Skip whitespace
-                if char.isspace():
-                    i += 1
-                    char_pos += 1
-                    continue
+            # Handle comments first (entire line after # is comment)
+            comment_pos = line.find('#')
+            if comment_pos != -1:
+                comment_start = f"{line_start}+{comment_pos}c"
+                comment_end = f"{line_start} lineend"
+                self.tag_add("python_comment", comment_start, comment_end)
 
-                # Comments
-                if char == '#':
-                    comment_start = f"{line_start}.{char_pos}"
-                    comment_end = f"{line_start}.{len(line)}"
-                    self.tag_add("python_comment", comment_start, comment_end)
-                    break  # Rest of line is comment
+            # Handle strings
+            self._highlight_strings_in_line(line, line_start)
 
-                # Strings
-                elif char in ['"', "'"]:
-                    quote = char
-                    string_start = f"{line_start}.{char_pos}"
-                    i += 1
-                    char_pos += 1
+            # Handle numbers, keywords, functions, etc.
+            self._highlight_tokens_in_line(line, line_start, keywords, builtins, comment_pos)
 
-                    # Find end of string
-                    while i < len(line) and line[i] != quote:
-                        if line[i] == '\\' and i + 1 < len(line):  # Escape character
-                            i += 2
-                            char_pos += 2
-                        else:
-                            i += 1
-                            char_pos += 1
+            # Move to next line
+            current_pos = f"{current_pos} lineend +1c"
 
-                    if i < len(line):  # Found closing quote
+    def _highlight_strings_in_line(self, line: str, line_start: str):
+        """Highlight strings in a line"""
+        i = 0
+        while i < len(line):
+            if line[i] in ['"', "'"]:
+                quote_char = line[i]
+                string_start = f"{line_start}+{i}c"
+                i += 1
+
+                # Find the end of the string
+                while i < len(line):
+                    if line[i] == quote_char:
                         i += 1
-                        char_pos += 1
-
-                    string_end = f"{line_start}.{char_pos}"
-                    self.tag_add("python_string", string_start, string_end)
-
-                # Numbers
-                elif char.isdigit() or (char == '.' and i + 1 < len(line) and line[i + 1].isdigit()):
-                    num_start = f"{line_start}.{char_pos}"
-
-                    # Handle different number formats
-                    while i < len(line) and (line[i].isdigit() or line[i] in '._xXbBoOeE+-'):
-                        i += 1
-                        char_pos += 1
-
-                    num_end = f"{line_start}.{char_pos}"
-                    self.tag_add("python_number", num_start, num_end)
-
-                # Decorators
-                elif char == '@':
-                    dec_start = f"{line_start}.{char_pos}"
-
-                    # Find end of decorator
-                    while i < len(line) and (line[i].isalnum() or line[i] in '@_.'):
-                        i += 1
-                        char_pos += 1
-
-                    dec_end = f"{line_start}.{char_pos}"
-                    self.tag_add("python_decorator", dec_start, dec_end)
-
-                # Operators
-                elif char in '+-*/%=<>!&|^~':
-                    op_start = f"{line_start}.{char_pos}"
-
-                    # Handle multi-character operators
-                    if i + 1 < len(line) and line[i:i + 2] in ['==', '!=', '<=', '>=', '//', '**', '<<', '>>', '+=',
-                                                               '-=', '*=', '/=', '%=', '&=', '|=', '^=']:
-                        i += 2
-                        char_pos += 2
+                        break
+                    elif line[i] == '\\' and i + 1 < len(line):
+                        i += 2  # Skip escaped character
                     else:
                         i += 1
-                        char_pos += 1
 
-                    op_end = f"{line_start}.{char_pos}"
-                    self.tag_add("python_operator", op_start, op_end)
+                string_end = f"{line_start}+{i}c"
+                self.tag_add("python_string", string_start, string_end)
+            else:
+                i += 1
 
-                # Identifiers (keywords, functions, classes, variables)
-                elif char.isalpha() or char == '_':
-                    word_start = f"{line_start}.{char_pos}"
-                    word_start_pos = char_pos
+    def _highlight_tokens_in_line(self, line: str, line_start: str, keywords: list, builtins: list, comment_pos: int):
+        """Highlight tokens (keywords, functions, etc.) in a line"""
+        # Don't process tokens after comment starts
+        process_line = line[:comment_pos] if comment_pos != -1 else line
 
-                    # Get the full word
-                    while i < len(line) and (line[i].isalnum() or line[i] == '_'):
-                        i += 1
-                        char_pos += 1
+        # Find all words
+        for match in re.finditer(r'\b\w+\b', process_line):
+            word = match.group()
+            word_start = f"{line_start}+{match.start()}c"
+            word_end = f"{line_start}+{match.end()}c"
 
-                    word = line[word_start_pos:char_pos]
-                    word_end = f"{line_start}.{char_pos}"
+            if word in keywords:
+                self.tag_add("python_keyword", word_start, word_end)
+            elif word in builtins:
+                self.tag_add("python_builtin", word_start, word_end)
+            elif match.end() < len(process_line) and process_line[match.end()] == '(':
+                self.tag_add("python_function", word_start, word_end)
+            elif word[0].isupper():
+                self.tag_add("python_class", word_start, word_end)
 
-                    # Check what type of word it is
-                    if word in keywords:
-                        self.tag_add("python_keyword", word_start, word_end)
-                    elif word in builtins:
-                        self.tag_add("python_builtin", word_start, word_end)
-                    elif i < len(line) and line[i] == '(':  # Function call
-                        self.tag_add("python_function", word_start, word_end)
-                    elif word[0].isupper():  # Likely a class name
-                        self.tag_add("python_class", word_start, word_end)
+        # Find numbers
+        for match in re.finditer(r'\b\d+\.?\d*\b', process_line):
+            num_start = f"{line_start}+{match.start()}c"
+            num_end = f"{line_start}+{match.end()}c"
+            self.tag_add("python_number", num_start, num_end)
 
-                else:
-                    i += 1
-                    char_pos += 1
-
-            current_line += 1
-
-        return f"{start_index.split('.')[0]}.{int(start_index.split('.')[1]) + current_line}"
+        # Find operators
+        operators = ['+', '-', '*', '/', '%', '=', '<', '>', '!', '&', '|', '^', '~']
+        for i, char in enumerate(process_line):
+            if char in operators:
+                op_start = f"{line_start}+{i}c"
+                op_end = f"{line_start}+{i + 1}c"
+                self.tag_add("python_operator", op_start, op_end)
 
     def detect_and_highlight_code_blocks(self, text: str, start_index: str):
-        """Detect and highlight Python code blocks in text"""
-        # Pattern for code blocks (both ```python and ``` formats)
-        code_block_pattern = r'```(?:python)?\n?(.*?)\n?```'
+        """Detect and highlight Python code blocks in text with copy buttons"""
+        # Find all code blocks starting from the given position
+        search_start = start_index
 
-        # Find all code blocks
-        matches = list(re.finditer(code_block_pattern, text, re.DOTALL | re.IGNORECASE))
+        while True:
+            # Find the next ``` marker
+            block_start_pos = self.search('```', search_start, tk.END)
+            if not block_start_pos:
+                break
 
-        if not matches:
-            return
+            # Find the closing ``` marker
+            block_end_search_start = f"{block_start_pos}+3c"
+            block_end_pos = self.search('```', block_end_search_start, tk.END)
+            if not block_end_pos:
+                break
 
-        # Process each code block
-        for match in matches:
-            code_content = match.group(1)
+            # Include the closing ```
+            actual_block_end = f"{block_end_pos}+3c"
 
-            # Calculate positions in the text widget
-            text_before_match = text[:match.start()]
-            lines_before = text_before_match.count('\n')
-            last_line_chars = len(text_before_match.split('\n')[-1])
+            # Apply code block background to entire block
+            self.tag_add("code_block", block_start_pos, actual_block_end)
 
-            # Start position of code block
-            block_start_line = int(start_index.split('.')[1]) + lines_before
-            if lines_before == 0:
-                block_start_char = int(start_index.split('.')[1]) + last_line_chars
+            # Find where the actual code content starts
+            first_line_end = self.search('\n', block_start_pos, actual_block_end)
+            if first_line_end:
+                code_content_start = f"{first_line_end}+1c"
             else:
-                block_start_char = last_line_chars
+                code_content_start = f"{block_start_pos}+3c"
 
-            block_start = f"{start_index.split('.')[0]}.{block_start_char}"
+            # Get the actual code content for the copy button
+            code_content = self.get(code_content_start, block_end_pos)
 
-            # End position of code block
-            text_including_match = text[:match.end()]
-            total_lines = text_including_match.count('\n')
-            last_line_chars_end = len(text_including_match.split('\n')[-1])
-
-            block_end_line = int(start_index.split('.')[1]) + total_lines
-            if total_lines == lines_before:
-                block_end_char = int(start_index.split('.')[1]) + last_line_chars_end
-            else:
-                block_end_char = last_line_chars_end
-
-            block_end = f"{start_index.split('.')[0]}.{block_end_char}"
-
-            # Apply code block background
-            self.tag_add("code_block", block_start, block_end)
+            # Create copy button for this code block
+            self._create_copy_button(block_start_pos, code_content)
 
             # Apply Python syntax highlighting to the code content
-            code_start_line = block_start_line
-            # Find where the actual code starts (after ``` and optional python)
-            match_text = match.group(0)
-            code_start_offset = match_text.find('\n') + 1 if '\n' in match_text else len(
-                '```python') if match_text.lower().startswith('```python') else 3
+            self.highlight_python_code_in_range(code_content_start, block_end_pos)
 
-            # Calculate the actual start position of code content
-            code_start_pos = f"{start_index.split('.')[0]}.{block_start_char + code_start_offset}"
+            # Continue searching after this block
+            search_start = actual_block_end
 
-            # Highlight the Python code
-            self.highlight_python_code(code_content, code_start_pos)
+    def _create_copy_button(self, block_start_pos: str, code_content: str):
+        """Create a copy button for a code block"""
+        # Generate unique ID for this code block
+        block_id = str(uuid.uuid4())
+
+        # Create the copy button
+        copy_button = tk.Button(
+            self,
+            text="📋",  # Copy icon
+            font=("Segoe UI", 8),
+            width=2,
+            height=1,
+            relief=tk.FLAT,
+            bg="#f0f0f0",
+            fg="#666666",
+            cursor="hand2",
+            command=lambda: self._copy_code_to_clipboard(code_content)
+        )
+
+        # Configure button hover effects
+        def on_enter(e):
+            copy_button.configure(bg="#e0e0e0")
+
+        def on_leave(e):
+            copy_button.configure(bg="#f0f0f0")
+
+        copy_button.bind("<Enter>", on_enter)
+        copy_button.bind("<Leave>", on_leave)
+
+        # Position the button in the top-right corner of the code block
+        # Calculate position relative to the start of the code block
+        button_pos = f"{block_start_pos}+3c"  # Position after ```
+
+        # Create window for the button
+        button_window = self.window_create(button_pos, window=copy_button)
+
+        # Store reference to prevent garbage collection
+        self.code_block_buttons[block_id] = {
+            'button': copy_button,
+            'window': button_window,
+            'code': code_content
+        }
+
+    def _copy_code_to_clipboard(self, code_content: str):
+        """Copy code content to clipboard"""
+        try:
+            # Clean up the code content (remove extra whitespace)
+            cleaned_code = code_content.strip()
+
+            # Copy to clipboard
+            self.clipboard_clear()
+            self.clipboard_append(cleaned_code)
+
+            # Show brief feedback (optional - you can remove this if you don't want popup)
+            self.after(0, lambda: self._show_copy_feedback())
+
+        except Exception as e:
+            print(f"Error copying to clipboard: {e}")
+
+    def _show_copy_feedback(self):
+        """Show brief visual feedback that code was copied"""
+        # Create a temporary label to show copy confirmation
+        feedback = tk.Label(
+            self.master,
+            text="Code copied! ✓",
+            bg="#90EE90",
+            fg="#006400",
+            font=("Segoe UI", 9),
+            relief=tk.RAISED,
+            padx=10,
+            pady=2
+        )
+
+        # Position it in the top-right of the parent frame
+        feedback.place(relx=1.0, rely=0.0, anchor="ne")
+
+        # Remove after 1.5 seconds
+        self.after(1500, feedback.destroy)
 
     def add_message(self, message: str, sender: str = "assistant", timestamp: str = None):
         """Add a message to the display with Python code highlighting"""
@@ -723,6 +767,17 @@ class ResponseDisplay(scrolledtext.ScrolledText):
     def clear_all(self):
         """Clear all content"""
         self.configure(state=tk.NORMAL)
+
+        # Clean up copy buttons
+        for block_id, block_info in self.code_block_buttons.items():
+            try:
+                block_info['button'].destroy()
+            except:
+                pass
+
+        self.code_block_buttons.clear()
+
+        # Clear text content
         self.delete(1.0, tk.END)
         self.configure(state=tk.DISABLED)
 
@@ -761,7 +816,6 @@ class ResponseDisplay(scrolledtext.ScrolledText):
     def show_context_menu(self, event):
         """Show context menu"""
         self.context_menu.post(event.x_root, event.y_root)
-
 
 class LoadingSpinner:
     """Loading spinner widget"""
