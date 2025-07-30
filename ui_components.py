@@ -500,6 +500,8 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             # Setup light theme Python highlighting
             self.setup_python_highlighting_tags()
 
+        self._is_dark_theme = (colors.get('bg') == '#2b2b2b')
+
     def highlight_python_code_in_range(self, start_pos: str, end_pos: str):
         """Apply Python syntax highlighting to code in the specified range"""
         # Python keywords
@@ -651,6 +653,168 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             # Continue searching after this block
             search_start = actual_block_end
 
+    def setup_markdown_tags(self):
+        """Setup text tags for markdown formatting"""
+        # Get current theme colors
+        is_dark = hasattr(self, '_is_dark_theme') and self._is_dark_theme
+
+        # Hidden tag for markdown syntax characters
+        self.tag_configure("markdown_hidden", elide=True)
+
+        if is_dark:
+            # Dark theme colors
+            self.tag_configure("markdown_h1", font=("Inter", 16, "bold"), foreground="#ffffff", spacing1=10, spacing3=5)
+            self.tag_configure("markdown_h2", font=("Inter", 14, "bold"), foreground="#ffffff", spacing1=8, spacing3=4)
+            self.tag_configure("markdown_h3", font=("Inter", 12, "bold"), foreground="#ffffff", spacing1=6, spacing3=3)
+            self.tag_configure("markdown_bold", font=("Inter", 11, "bold"), foreground="#ffffff")
+            self.tag_configure("markdown_italic", font=("Inter", 11, "italic"), foreground="#ffffff")
+            self.tag_configure("markdown_code", font=("JetBrains Mono", 10), foreground="#ce9178", background="#1e1e1e")
+            self.tag_configure("markdown_link", font=("Inter", 11, "underline"), foreground="#4da6ff")
+            self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#999999",
+                               lmargin1=20, lmargin2=20, background="#333333")
+            self.tag_configure("markdown_list", font=("Inter", 11), foreground="#ffffff", lmargin1=20, lmargin2=30)
+        else:
+            # Light theme colors
+            self.tag_configure("markdown_h1", font=("Inter", 16, "bold"), foreground="#000000", spacing1=10, spacing3=5)
+            self.tag_configure("markdown_h2", font=("Inter", 14, "bold"), foreground="#000000", spacing1=8, spacing3=4)
+            self.tag_configure("markdown_h3", font=("Inter", 12, "bold"), foreground="#000000", spacing1=6, spacing3=3)
+            self.tag_configure("markdown_bold", font=("Inter", 11, "bold"), foreground="#000000")
+            self.tag_configure("markdown_italic", font=("Inter", 11, "italic"), foreground="#000000")
+            self.tag_configure("markdown_code", font=("JetBrains Mono", 10), foreground="#d73a49", background="#f6f8fa")
+            self.tag_configure("markdown_link", font=("Inter", 11, "underline"), foreground="#0366d6")
+            self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#6a737d",
+                               lmargin1=20, lmargin2=20, background="#f6f8fa")
+            self.tag_configure("markdown_list", font=("Inter", 11), foreground="#000000", lmargin1=20, lmargin2=30)
+
+    def render_markdown_in_range(self, start_pos: str, end_pos: str, markdown_enabled: bool = True):
+        """Render markdown formatting in the specified text range"""
+        if not markdown_enabled:
+            return
+
+        # Setup markdown tags first
+        self.setup_markdown_tags()
+
+        content = self.get(start_pos, end_pos)
+        lines = content.split('\n')
+        current_line = int(start_pos.split('.')[0])
+
+        for i, line in enumerate(lines):
+            if not line.strip():
+                current_line += 1
+                continue
+
+            line_start = f"{current_line}.0"
+            line_end = f"{current_line}.end"
+
+            # Check if line exists
+            try:
+                actual_line_content = self.get(line_start, line_end)
+            except tk.TclError:
+                current_line += 1
+                continue
+
+            if not actual_line_content.strip():
+                current_line += 1
+                continue
+
+            # Apply line-level formatting
+            self._apply_line_markdown(actual_line_content, line_start, line_end)
+
+            # Apply inline formatting
+            self._apply_inline_markdown(actual_line_content, line_start)
+
+            current_line += 1
+
+    def _apply_inline_markdown(self, line: str, line_start: str):
+        """Apply inline markdown formatting to a line"""
+        # Process inline code first (to avoid conflicts)
+        for match in re.finditer(r'`([^`]+)`', line):
+            start_offset = match.start()
+            end_offset = match.end()
+
+            code_start_pos = f"{line_start}+{start_offset}c"
+            code_end_pos = f"{line_start}+{end_offset}c"
+            self.tag_add("markdown_code", code_start_pos, code_end_pos)
+
+        # Bold text (**text** or __text__) - hide markdown chars
+        for match in re.finditer(r'\*\*(.*?)\*\*|__(.*?)__', line):
+            full_start = match.start()
+            full_end = match.end()
+            content_start = full_start + 2
+            content_end = full_end - 2
+
+            # Hide the markdown characters
+            marker_start1 = f"{line_start}+{full_start}c"
+            marker_end1 = f"{line_start}+{content_start}c"
+            marker_start2 = f"{line_start}+{content_end}c"
+            marker_end2 = f"{line_start}+{full_end}c"
+
+            self.tag_add("markdown_hidden", marker_start1, marker_end1)
+            self.tag_add("markdown_hidden", marker_start2, marker_end2)
+
+            # Apply bold to content
+            content_start_pos = f"{line_start}+{content_start}c"
+            content_end_pos = f"{line_start}+{content_end}c"
+            self.tag_add("markdown_bold", content_start_pos, content_end_pos)
+
+        # Italic text (*text* or _text_) - avoid conflict with bold
+        for match in re.finditer(r'(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)', line):
+            full_start = match.start()
+            full_end = match.end()
+            content_start = full_start + 1
+            content_end = full_end - 1
+
+            # Hide the markdown characters
+            marker_start1 = f"{line_start}+{full_start}c"
+            marker_end1 = f"{line_start}+{content_start}c"
+            marker_start2 = f"{line_start}+{content_end}c"
+            marker_end2 = f"{line_start}+{full_end}c"
+
+            self.tag_add("markdown_hidden", marker_start1, marker_end1)
+            self.tag_add("markdown_hidden", marker_start2, marker_end2)
+
+            # Apply italic to content
+            content_start_pos = f"{line_start}+{content_start}c"
+            content_end_pos = f"{line_start}+{content_end}c"
+            self.tag_add("markdown_italic", content_start_pos, content_end_pos)
+
+        # Links [text](url)
+        for match in re.finditer(r'\[([^\]]+)\]\([^)]+\)', line):
+            start_offset = match.start()
+            end_offset = match.end()
+
+            link_start_pos = f"{line_start}+{start_offset}c"
+            link_end_pos = f"{line_start}+{end_offset}c"
+            self.tag_add("markdown_link", link_start_pos, link_end_pos)
+
+    def _apply_line_markdown(self, line: str, line_start: str, line_end: str):
+        """Apply line-level markdown formatting"""
+        # Headers
+        if line.startswith('### '):
+            self.tag_add("markdown_h3", f"{line_start}+4c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+4c")
+        elif line.startswith('## '):
+            self.tag_add("markdown_h2", f"{line_start}+3c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+3c")
+        elif line.startswith('# '):
+            self.tag_add("markdown_h1", f"{line_start}+2c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+2c")
+
+        # Blockquotes
+        elif line.startswith('> '):
+            self.tag_add("markdown_quote", line_start, line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+2c")
+
+        # Lists
+        elif line.strip().startswith(('- ', '* ', '+ ')) or re.match(r'^\s*\d+\.\s', line):
+            self.tag_add("markdown_list", line_start, line_end)
+
+    def toggle_markdown_rendering(self, enabled: bool):
+        """Toggle markdown rendering for the display"""
+        self.markdown_enabled = enabled
+        # Note: This will affect new messages, existing messages won't change
+        # To re-render existing messages, you'd need to clear and re-add them
+
     def _create_copy_button(self, block_start_pos: str, code_content: str):
         """Create a copy button for a code block"""
         # Generate unique ID for this code block
@@ -730,8 +894,9 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         # Remove after 1.5 seconds
         self.after(1500, feedback.destroy)
 
-    def add_message(self, message: str, sender: str = "assistant", timestamp: str = None):
-        """Add a message to the display with Python code highlighting"""
+    def add_message(self, message: str, sender: str = "assistant", timestamp: str = None,
+                    markdown_enabled: bool = None):
+        """Add a message to the display with Python code highlighting and markdown rendering"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
 
@@ -751,14 +916,25 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.insert(tk.END, "Error: ", "error")
 
         # Get current position to start highlighting from
-        current_pos = self.index(tk.INSERT)
+        message_start_pos = self.index(tk.INSERT)
 
         # Insert the message
         self.insert(tk.END, f"{message}\n\n", sender)
 
-        # Apply Python code highlighting if this is from assistant
+        # Get end position of the message (before the extra newlines)
+        message_end_pos = self.index(f"{message_start_pos} + {len(message)}c")
+
+        # Apply formatting if this is from assistant
         if sender == "assistant":
-            self.detect_and_highlight_code_blocks(message, current_pos)
+            # Apply markdown rendering if enabled
+            if markdown_enabled is None:
+                markdown_enabled = True  # Default, will be overridden by calling code
+
+            if markdown_enabled:
+                self.render_markdown_in_range(message_start_pos, message_end_pos, markdown_enabled)
+
+            # Apply code block highlighting (this should come after markdown to override)
+            self.detect_and_highlight_code_blocks(message, message_start_pos)
 
         # Scroll to bottom
         self.see(tk.END)

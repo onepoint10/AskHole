@@ -44,7 +44,8 @@ class ConfigManager:
             "search_enabled": True,
             "last_used_directory": str(Path.home()),
             "chat_history_limit": 100,
-            "auto_clear_files": False  # NEW OPTION
+            "auto_clear_files": False,
+            "markdown_rendering": True
         }
         
         self.config = self._load_config()
@@ -315,7 +316,8 @@ class SettingsDialog:
         self.parent = parent
         self.config_manager = config_manager
         self.result = None
-        
+        self.markdown_var = None
+
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Settings")
         self.dialog.geometry("500x600")
@@ -441,6 +443,12 @@ class SettingsDialog:
         tk.Label(self.appearance_frame, text="Font Size:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.font_size_var = tk.StringVar()
         tk.Entry(self.appearance_frame, textvariable=self.font_size_var).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+
+        # Markdown rendering
+        tk.Label(self.appearance_frame, text="Markdown Rendering:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.markdown_var = tk.BooleanVar()
+        tk.Checkbutton(self.appearance_frame, text="Enable markdown rendering",
+                       variable=self.markdown_var).grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
         
         # Window geometry
         tk.Label(self.appearance_frame, text="Default Window Size:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
@@ -494,6 +502,7 @@ class SettingsDialog:
         self.theme_var.set(self.config_manager.get("theme"))
         self.font_size_var.set(str(self.config_manager.get("font_size")))
         self.geometry_var.set(self.config_manager.get("window_geometry"))
+        self.markdown_var.set(self.config_manager.get("markdown_rendering"))
         
         self.max_length_var.set(str(self.config_manager.get("max_response_length")))
         self.directory_var.set(self.config_manager.get("last_used_directory"))
@@ -562,6 +571,7 @@ class SettingsDialog:
             
             self.config_manager.set("theme", self.theme_var.get())
             self.config_manager.set("font_size", int(self.font_size_var.get()))
+            self.config_manager.set("markdown_rendering", self.markdown_var.get())
             self.config_manager.set("window_geometry", self.geometry_var.get())
             
             self.config_manager.set("max_response_length", int(self.max_length_var.get()))

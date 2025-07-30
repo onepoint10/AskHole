@@ -765,7 +765,8 @@ class MainApplication:
 
     def _display_response(self, response: str):
         """Display response in the UI"""
-        self.response_display.add_message(response, "assistant")
+        markdown_enabled = self.config_manager.get("markdown_rendering", True)
+        self.response_display.add_message(response, "assistant", markdown_enabled=markdown_enabled)
         logging.info("Response displayed to user")
 
     def _show_error(self, error_message: str):
@@ -1070,7 +1071,7 @@ class MainApplication:
             # Reinitialize client if API key changed
             self.initialize_client()
             self.apply_theme()
-            self.update_fonts_after_theme_change()  # Add this line
+            self.update_fonts_after_theme_change()
             self.update_status()
 
             # Update toolbar values
@@ -1079,6 +1080,10 @@ class MainApplication:
             modes = self.config_manager.get_available_modes()
             if current_mode in modes:
                 self.mode_var.set(modes[current_mode])
+
+            # Update markdown rendering setting for response display
+            markdown_enabled = self.config_manager.get("markdown_rendering", True)
+            self.response_display.toggle_markdown_rendering(markdown_enabled)
     
     def show_audio_player(self):
         """Show audio player window"""
