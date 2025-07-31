@@ -612,7 +612,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
                 self.tag_add("python_operator", op_start, op_end)
 
     def detect_and_highlight_code_blocks(self, text: str, start_index: str):
-        """Detect and highlight Python code blocks in text with copy buttons"""
+        """Detect and highlight code blocks with language-specific formatting and copy buttons"""
         # Find all code blocks starting from the given position
         search_start = start_index
 
@@ -631,15 +631,18 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             # Include the closing ```
             actual_block_end = f"{block_end_pos}+3c"
 
-            # Apply code block background to entire block
-            self.tag_add("code_block", block_start_pos, actual_block_end)
-
-            # Find where the actual code content starts
+            # Get the first line to check for language specification
             first_line_end = self.search('\n', block_start_pos, actual_block_end)
             if first_line_end:
+                first_line = self.get(f"{block_start_pos}+3c", first_line_end).strip().lower()
                 code_content_start = f"{first_line_end}+1c"
             else:
+                # No newline found, treat entire content as language specifier
+                first_line = self.get(f"{block_start_pos}+3c", block_end_pos).strip().lower()
                 code_content_start = f"{block_start_pos}+3c"
+
+            # Apply code block background to entire block
+            self.tag_add("code_block", block_start_pos, actual_block_end)
 
             # Get the actual code content for the copy button
             code_content = self.get(code_content_start, block_end_pos)
@@ -647,11 +650,26 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             # Create copy button for this code block
             self._create_copy_button(block_start_pos, code_content)
 
-            # Apply Python syntax highlighting to the code content
-            self.highlight_python_code_in_range(code_content_start, block_end_pos)
+            # Apply language-specific highlighting
+            if first_line in ["python", "py"]:
+                # Apply Python syntax highlighting to the code content
+                self.highlight_python_code_in_range(code_content_start, block_end_pos)
+            elif first_line in ["markdown", "md"]:
+                # Apply markdown rendering to the code content
+                self.render_markdown_in_range(code_content_start, block_end_pos, markdown_enabled=True)
+            else:
+                # Generic code block - no language-specific highlighting
+                # Just use the code_block tag that's already applied
+                self.highlight_generic_code_in_range(code_content_start, block_end_pos)
 
             # Continue searching after this block
             search_start = actual_block_end
+
+    def highlight_generic_code_in_range(self, start_pos: str, end_pos: str):
+        """Apply generic code formatting (no syntax highlighting) to code in the specified range"""
+        # Just apply the code block styling without language-specific highlighting
+        # The code_block tag is already applied in detect_and_highlight_code_blocks
+        pass
 
     def setup_markdown_tags(self):
         """Setup text tags for markdown formatting"""
@@ -666,6 +684,9 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("markdown_h1", font=("Inter", 16, "bold"), foreground="#ffffff", spacing1=10, spacing3=5)
             self.tag_configure("markdown_h2", font=("Inter", 14, "bold"), foreground="#ffffff", spacing1=8, spacing3=4)
             self.tag_configure("markdown_h3", font=("Inter", 12, "bold"), foreground="#ffffff", spacing1=6, spacing3=3)
+            self.tag_configure("markdown_h4", font=("Inter", 11, "bold"), foreground="#ffffff", spacing1=4, spacing3=2)
+            self.tag_configure("markdown_h5", font=("Inter", 10, "bold"), foreground="#ffffff", spacing1=3, spacing3=2)
+            self.tag_configure("markdown_h6", font=("Inter", 10, "bold"), foreground="#999999", spacing1=2, spacing3=1)
             self.tag_configure("markdown_bold", font=("Inter", 11, "bold"), foreground="#ffffff")
             self.tag_configure("markdown_italic", font=("Inter", 11, "italic"), foreground="#ffffff")
             self.tag_configure("markdown_code", font=("JetBrains Mono", 10), foreground="#ce9178", background="#1e1e1e")
@@ -673,11 +694,24 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#999999",
                                lmargin1=20, lmargin2=20, background="#333333")
             self.tag_configure("markdown_list", font=("Inter", 11), foreground="#ffffff", lmargin1=20, lmargin2=30)
+            # Table styles
+            self.tag_configure("markdown_table_header", font=("JetBrains Mono", 10, "bold"),
+                               foreground="#ffffff", background="#404040",
+                               spacing1=2, spacing3=2)
+            self.tag_configure("markdown_table_cell", font=("JetBrains Mono", 10),
+                               foreground="#ffffff", background="#2b2b2b",
+                               spacing1=1, spacing3=1)
+            self.tag_configure("markdown_table_border", font=("JetBrains Mono", 10),
+                               foreground="#666666", background="#2b2b2b",
+                               spacing1=1, spacing3=1)
         else:
             # Light theme colors
             self.tag_configure("markdown_h1", font=("Inter", 16, "bold"), foreground="#000000", spacing1=10, spacing3=5)
             self.tag_configure("markdown_h2", font=("Inter", 14, "bold"), foreground="#000000", spacing1=8, spacing3=4)
             self.tag_configure("markdown_h3", font=("Inter", 12, "bold"), foreground="#000000", spacing1=6, spacing3=3)
+            self.tag_configure("markdown_h4", font=("Inter", 11, "bold"), foreground="#000000", spacing1=4, spacing3=2)
+            self.tag_configure("markdown_h5", font=("Inter", 10, "bold"), foreground="#000000", spacing1=3, spacing3=2)
+            self.tag_configure("markdown_h6", font=("Inter", 10, "bold"), foreground="#666666", spacing1=2, spacing3=1)
             self.tag_configure("markdown_bold", font=("Inter", 11, "bold"), foreground="#000000")
             self.tag_configure("markdown_italic", font=("Inter", 11, "italic"), foreground="#000000")
             self.tag_configure("markdown_code", font=("JetBrains Mono", 10), foreground="#d73a49", background="#f6f8fa")
@@ -685,6 +719,16 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#6a737d",
                                lmargin1=20, lmargin2=20, background="#f6f8fa")
             self.tag_configure("markdown_list", font=("Inter", 11), foreground="#000000", lmargin1=20, lmargin2=30)
+            # Table styles
+            self.tag_configure("markdown_table_header", font=("JetBrains Mono", 10, "bold"),
+                               foreground="#000000", background="#f8f9fa",
+                               spacing1=2, spacing3=2)
+            self.tag_configure("markdown_table_cell", font=("JetBrains Mono", 10),
+                               foreground="#000000", background="#ffffff",
+                               spacing1=1, spacing3=1)
+            self.tag_configure("markdown_table_border", font=("JetBrains Mono", 10),
+                               foreground="#dee2e6", background="#ffffff",
+                               spacing1=1, spacing3=1)
 
     def render_markdown_in_range(self, start_pos: str, end_pos: str, markdown_enabled: bool = True):
         """Render markdown formatting in the specified text range"""
@@ -695,6 +739,11 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         self.setup_markdown_tags()
 
         content = self.get(start_pos, end_pos)
+
+        # First, detect and render tables
+        self._detect_and_render_tables(content, start_pos)
+
+        # Then apply other markdown formatting
         lines = content.split('\n')
         current_line = int(start_pos.split('.')[0])
 
@@ -714,6 +763,15 @@ class ResponseDisplay(scrolledtext.ScrolledText):
                 continue
 
             if not actual_line_content.strip():
+                current_line += 1
+                continue
+
+            # Skip table lines (they're already processed)
+            if '|' in actual_line_content and (
+                    (i + 1 < len(lines) and '|' in lines[i + 1] and '-' in lines[i + 1]) or
+                    (i > 0 and '|' in lines[i - 1] and '-' in lines[i - 1]) or
+                    ('─' in actual_line_content or '│' in actual_line_content)
+            ):
                 current_line += 1
                 continue
 
@@ -789,8 +847,17 @@ class ResponseDisplay(scrolledtext.ScrolledText):
 
     def _apply_line_markdown(self, line: str, line_start: str, line_end: str):
         """Apply line-level markdown formatting"""
-        # Headers
-        if line.startswith('### '):
+        # Headers - Fixed to handle all header levels properly
+        if line.startswith('###### '):
+            self.tag_add("markdown_h6", f"{line_start}+7c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+7c")
+        elif line.startswith('##### '):
+            self.tag_add("markdown_h5", f"{line_start}+6c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+6c")
+        elif line.startswith('#### '):
+            self.tag_add("markdown_h4", f"{line_start}+5c", line_end)
+            self.tag_add("markdown_hidden", line_start, f"{line_start}+5c")
+        elif line.startswith('### '):
             self.tag_add("markdown_h3", f"{line_start}+4c", line_end)
             self.tag_add("markdown_hidden", line_start, f"{line_start}+4c")
         elif line.startswith('## '):
@@ -814,6 +881,257 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         self.markdown_enabled = enabled
         # Note: This will affect new messages, existing messages won't change
         # To re-render existing messages, you'd need to clear and re-add them
+
+    def _detect_and_render_tables(self, content: str, start_pos: str):
+        """Detect and render markdown tables"""
+        lines = content.split('\n')
+        current_line = int(start_pos.split('.')[0])
+
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # Check if this line looks like a table header
+            if '|' in line and i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Check if next line is a separator (contains dashes and pipes)
+                if '|' in next_line and '-' in next_line:
+                    # Found a table, process it
+                    table_start_line = current_line + i
+                    try:
+                        table_lines_count = self._render_table_from_line(lines, i, table_start_line)
+                        # Move past the processed table
+                        i += table_lines_count
+                    except Exception as e:
+                        print(f"Error rendering table: {e}")
+                        # Skip this potential table and continue
+                        i += 2
+                    continue
+
+            i += 1
+
+    def _render_table_from_line(self, lines: list, start_idx: int, start_line_num: int) -> int:
+        """Render a table starting from the given line index"""
+        # Find all table lines
+        table_lines = []
+        i = start_idx
+
+        # Get header line (must exist)
+        if i < len(lines) and '|' in lines[i]:
+            table_lines.append(lines[i])
+            i += 1
+        else:
+            return 1  # Not a valid table, skip one line
+
+        # Get separator line (must exist for valid table)
+        if i < len(lines) and '|' in lines[i] and '-' in lines[i]:
+            separator_line = lines[i]
+            i += 1
+        else:
+            return 1  # Not a valid table, skip one line
+
+        # Get data rows (optional)
+        processed_rows = 0
+        while i < len(lines) and '|' in lines[i] and processed_rows < 50:  # Limit to prevent infinite loops
+            # Check if this line actually looks like a table row
+            line_content = lines[i].strip()
+            if not line_content or line_content.count('|') < 2:
+                break
+            table_lines.append(lines[i])
+            i += 1
+            processed_rows += 1
+
+        if len(table_lines) < 2:  # Need at least header + separator
+            return 2  # Skip header and separator
+
+        # Parse and render the table (with error handling)
+        try:
+            self._render_table_content(table_lines, start_line_num)
+        except Exception as e:
+            print(f"Error rendering table content: {e}")
+            # Return the number of lines processed so far
+            return len(table_lines)
+
+        return len(table_lines)  # Return number of lines processed
+
+    def _render_table_content(self, table_lines: list, start_line_num: int):
+        """Render the actual table content with proper formatting and alignment"""
+        if len(table_lines) < 2:
+            return
+
+        try:
+            # Parse header
+            header_line = table_lines[0].strip()
+            if header_line.startswith('|'):
+                header_line = header_line[1:]
+            if header_line.endswith('|'):
+                header_line = header_line[:-1]
+
+            header_cells = [cell.strip() for cell in header_line.split('|')]
+
+            if not header_cells:  # No valid header cells
+                return
+
+            # Parse all data rows to calculate column widths
+            all_rows = []
+            for line in table_lines[2:]:  # Skip separator line
+                try:
+                    data_line = line.strip()
+                    if data_line.startswith('|'):
+                        data_line = data_line[1:]
+                    if data_line.endswith('|'):
+                        data_line = data_line[:-1]
+
+                    data_cells = [cell.strip() for cell in data_line.split('|')]
+                    all_rows.append(data_cells)
+                except (IndexError, AttributeError):
+                    continue
+
+            # Calculate optimal column widths
+            col_widths = []
+            num_cols = len(header_cells)
+
+            for i in range(num_cols):
+                max_width = len(header_cells[i])
+
+                # Check all data rows for this column
+                for row in all_rows:
+                    if i < len(row):
+                        max_width = max(max_width, len(row[i]))
+
+                # Add padding and set minimum width
+                col_widths.append(max(max_width + 4, 12))  # Minimum width of 12, padding of 4
+
+            # Get total table width
+            table_width = sum(col_widths) + num_cols + 1  # +1 for borders
+
+            # Render top border
+            current_line = start_line_num
+            header_line_start = f"{current_line}.0"
+            header_line_end = f"{current_line}.end"
+
+            try:
+                # Clear original header line
+                self.delete(header_line_start, header_line_end)
+
+                # Create top border
+                top_border = "┌"
+                for i, width in enumerate(col_widths):
+                    top_border += "─" * width
+                    if i < len(col_widths) - 1:
+                        top_border += "┬"
+                top_border += "┐"
+
+                self.insert(header_line_start, top_border)
+                self.tag_add("markdown_table_border", header_line_start, f"{current_line}.end")
+                current_line += 1
+
+                # Render header content
+                header_content_start = f"{current_line}.0"
+                header_content_end = f"{current_line}.end"
+
+                try:
+                    self.delete(header_content_start, header_content_end)
+
+                    formatted_header = "│"
+                    for i, cell in enumerate(header_cells):
+                        if i < len(col_widths):
+                            # Center-align header text
+                            padding = col_widths[i] - len(cell)
+                            left_pad = padding // 2
+                            right_pad = padding - left_pad
+                            padded_cell = " " * left_pad + cell + " " * right_pad
+                            formatted_header += padded_cell + "│"
+
+                    self.insert(header_content_start, formatted_header)
+                    self.tag_add("markdown_table_header", header_content_start, f"{current_line}.end")
+                    current_line += 1
+
+                    # Render header-data separator
+                    separator_start = f"{current_line}.0"
+                    separator_end = f"{current_line}.end"
+
+                    try:
+                        self.delete(separator_start, separator_end)
+
+                        separator = "├"
+                        for i, width in enumerate(col_widths):
+                            separator += "─" * width
+                            if i < len(col_widths) - 1:
+                                separator += "┼"
+                        separator += "┤"
+
+                        self.insert(separator_start, separator)
+                        self.tag_add("markdown_table_border", separator_start, f"{current_line}.end")
+                        current_line += 1
+
+                        # Render data rows
+                        for row_idx, row_cells in enumerate(all_rows):
+                            if row_idx > 20:  # Limit rows to prevent performance issues
+                                break
+
+                            try:
+                                row_line_start = f"{current_line}.0"
+                                row_line_end = f"{current_line}.end"
+
+                                self.delete(row_line_start, row_line_end)
+
+                                formatted_row = "│"
+                                for i, width in enumerate(col_widths):
+                                    cell_content = row_cells[i] if i < len(row_cells) else ""
+                                    # Left-align data content with proper padding
+                                    padded_cell = f" {cell_content:<{width - 2}} "
+                                    formatted_row += padded_cell + "│"
+
+                                self.insert(row_line_start, formatted_row)
+                                self.tag_add("markdown_table_cell", row_line_start, f"{current_line}.end")
+                                current_line += 1
+
+                            except tk.TclError as e:
+                                print(f"Error rendering table row {row_idx}: {e}")
+                                break
+                            except Exception as e:
+                                print(f"Unexpected error rendering table row {row_idx}: {e}")
+                                break
+
+                        # Render bottom border
+                        try:
+                            bottom_line_start = f"{current_line}.0"
+                            bottom_line_end = f"{current_line}.end"
+
+                            # Check if we need to insert a new line or replace existing
+                            try:
+                                existing_content = self.get(bottom_line_start, bottom_line_end)
+                                self.delete(bottom_line_start, bottom_line_end)
+                            except tk.TclError:
+                                # Line doesn't exist, insert at end
+                                bottom_line_start = tk.END
+
+                            bottom_border = "└"
+                            for i, width in enumerate(col_widths):
+                                bottom_border += "─" * width
+                                if i < len(col_widths) - 1:
+                                    bottom_border += "┴"
+                            bottom_border += "┘"
+
+                            self.insert(bottom_line_start, bottom_border)
+                            self.tag_add("markdown_table_border", bottom_line_start, f"{current_line}.end")
+
+                        except Exception as e:
+                            print(f"Error rendering bottom border: {e}")
+
+                    except tk.TclError as e:
+                        print(f"Error rendering separator line: {e}")
+
+                except tk.TclError as e:
+                    print(f"Error rendering header content: {e}")
+
+            except tk.TclError as e:
+                print(f"Error rendering table header: {e}")
+
+        except Exception as e:
+            print(f"Error in _render_table_content: {e}")
+            return
 
     def _create_copy_button(self, block_start_pos: str, code_content: str):
         """Create a copy button for a code block"""
