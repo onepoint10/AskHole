@@ -694,15 +694,15 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#999999",
                                lmargin1=20, lmargin2=20, background="#333333")
             self.tag_configure("markdown_list", font=("Inter", 11), foreground="#ffffff", lmargin1=20, lmargin2=30)
-            # Table styles
+            # Table styles - FIXED FOR DARK THEME
             self.tag_configure("markdown_table_header", font=("JetBrains Mono", 10, "bold"),
                                foreground="#ffffff", background="#404040",
                                spacing1=2, spacing3=2)
             self.tag_configure("markdown_table_cell", font=("JetBrains Mono", 10),
-                               foreground="#ffffff", background="#2b2b2b",
+                               foreground="#ffffff", background="#333333",
                                spacing1=1, spacing3=1)
             self.tag_configure("markdown_table_border", font=("JetBrains Mono", 10),
-                               foreground="#666666", background="#2b2b2b",
+                               foreground="#666666", background="#333333",
                                spacing1=1, spacing3=1)
         else:
             # Light theme colors
@@ -740,6 +740,15 @@ class ResponseDisplay(scrolledtext.ScrolledText):
 
         content = self.get(start_pos, end_pos)
 
+        # IMPORTANT: Skip markdown processing if we're inside a code block
+        # Check if this range is within a code block
+        try:
+            tags_in_range = self.tag_names(start_pos)
+            if "code_block" in tags_in_range:
+                return  # Don't process markdown inside code blocks
+        except:
+            pass
+
         # First, detect and render tables
         self._detect_and_render_tables(content, start_pos)
 
@@ -763,6 +772,11 @@ class ResponseDisplay(scrolledtext.ScrolledText):
                 continue
 
             if not actual_line_content.strip():
+                current_line += 1
+                continue
+
+            # Skip lines that contain code block markers
+            if '```' in actual_line_content:
                 current_line += 1
                 continue
 
@@ -1134,11 +1148,20 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             return
 
     def _create_copy_button(self, block_start_pos: str, code_content: str):
-        """Create a copy button for a code block"""
+        """Create a copy button for a code block positioned in the top-right corner"""
         # Generate unique ID for this code block
         block_id = str(uuid.uuid4())
 
-        # Create the copy button
+        # Find the end of the first line to position button at the right
+        first_line_end = self.search('\n', f"{block_start_pos}+1c", tk.END)
+        if not first_line_end:
+            # If no newline found, use end of the block
+            first_line_end = self.search('```', f"{block_start_pos}+1c", tk.END)
+
+        # Position button at the end of the first line, but move it back a bit for right alignment
+        button_pos = f"{first_line_end}-2c" if first_line_end else f"{block_start_pos}+10c"
+
+        # Create the copy button with improved styling
         copy_button = tk.Button(
             self,
             text="📋",  # Copy icon
@@ -1162,19 +1185,33 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         copy_button.bind("<Enter>", on_enter)
         copy_button.bind("<Leave>", on_leave)
 
-        # Position the button in the top-right corner of the code block
-        # Calculate position relative to the start of the code block
-        button_pos = f"{block_start_pos}+3c"  # Position after ```
+        # Create window for the button at the calculated position
+        try:
+            button_window = self.window_create(button_pos, window=copy_button)
 
-        # Create window for the button
-        button_window = self.window_create(button_pos, window=copy_button)
+            # Store reference to prevent garbage collection
+            self.code_block_buttons[block_id] = {
+                'button': copy_button,
+                'window': button_window,
+                'code': code_content
+            }
+        except tk.TclError:
+            # If positioning fails, destroy the button to prevent orphaned buttons
+            copy_button.destroy()
 
-        # Store reference to prevent garbage collection
-        self.code_block_buttons[block_id] = {
-            'button': copy_button,
-            'window': button_window,
-            'code': code_content
-        }
+    def _cleanup_orphaned_buttons(self):
+        """Clean up any orphaned copy buttons"""
+        orphaned_ids = []
+        for block_id, block_info in self.code_block_buttons.items():
+            try:
+                # Try to access the button - if it raises an exception, it's orphaned
+                block_info['button'].winfo_exists()
+            except (tk.TclError, AttributeError):
+                orphaned_ids.append(block_id)
+
+        # Remove orphaned buttons from tracking
+        for block_id in orphaned_ids:
+            del self.code_block_buttons[block_id]
 
     def _copy_code_to_clipboard(self, code_content: str):
         """Copy code content to clipboard"""
@@ -1248,15 +1285,114 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             if markdown_enabled is None:
                 markdown_enabled = True  # Default, will be overridden by calling code
 
+            # IMPORTANT: Apply code block highlighting FIRST to protect code blocks from markdown processing
+            self.detect_and_highlight_code_blocks(message, message_start_pos)
+
+            # Then apply markdown rendering (it will skip areas already marked as code blocks)
             if markdown_enabled:
                 self.render_markdown_in_range(message_start_pos, message_end_pos, markdown_enabled)
-
-            # Apply code block highlighting (this should come after markdown to override)
-            self.detect_and_highlight_code_blocks(message, message_start_pos)
 
         # Scroll to bottom
         self.see(tk.END)
         self.configure(state=tk.DISABLED)
+
+    def detect_and_highlight_code_blocks(self, text: str, start_index: str):
+        """Detect and highlight code blocks with language-specific formatting and copy buttons"""
+        # First, find all code blocks in the original text to get proper boundaries
+        import re
+
+        # Find all code blocks in the original message text
+        code_block_pattern = r'```(\w*)\n?(.*?)```'
+        original_blocks = []
+
+        for match in re.finditer(code_block_pattern, text, re.DOTALL):
+            language = match.group(1).strip().lower() if match.group(1) else ""
+            code_content = match.group(2)
+            original_blocks.append({
+                'language': language,
+                'content': code_content,
+                'full_match': match.group(0)
+            })
+
+        # Now search for these blocks in the rendered text
+        search_start = start_index
+        block_index = 0
+
+        while True:
+            # Find the next ``` marker
+            block_start_pos = self.search('```', search_start, tk.END)
+            if not block_start_pos or block_index >= len(original_blocks):
+                break
+
+            # Find the closing ``` marker
+            block_end_search_start = f"{block_start_pos}+3c"
+            block_end_pos = self.search('```', block_end_search_start, tk.END)
+            if not block_end_pos:
+                break
+
+            # Include the closing ```
+            actual_block_end = f"{block_end_pos}+3c"
+
+            # Get the first line to check for language specification
+            first_line_end = self.search('\n', block_start_pos, actual_block_end)
+            if first_line_end:
+                first_line = self.get(f"{block_start_pos}+3c", first_line_end).strip().lower()
+                code_content_start = f"{first_line_end}+1c"
+            else:
+                # No newline found, treat entire content as language specifier
+                first_line = self.get(f"{block_start_pos}+3c", block_end_pos).strip().lower()
+                code_content_start = f"{block_start_pos}+3c"
+
+            # Apply code block background to entire block
+            self.tag_add("code_block", block_start_pos, actual_block_end)
+
+            # Use the original code content from our detected blocks
+            if block_index < len(original_blocks):
+                original_code_content = original_blocks[block_index]['content']
+                detected_language = original_blocks[block_index]['language']
+            else:
+                # Fallback to rendered content
+                original_code_content = self.get(code_content_start, block_end_pos)
+                detected_language = first_line
+
+            # Create copy button for this code block with original content
+            self._create_copy_button(block_start_pos, original_code_content)
+
+            # Apply language-specific highlighting using detected language
+            if detected_language in ["python", "py"]:
+                # Apply Python syntax highlighting to the code content
+                self.highlight_python_code_in_range(code_content_start, block_end_pos)
+            elif detected_language in ["markdown", "md"]:
+                # Apply markdown rendering to the code content
+                self.render_markdown_in_range(code_content_start, block_end_pos, markdown_enabled=True)
+            else:
+                # Generic code block - no language-specific highlighting
+                self.highlight_generic_code_in_range(code_content_start, block_end_pos)
+
+            # Continue searching after this block
+            search_start = actual_block_end
+            block_index += 1
+
+        def _extract_original_code_block(self, original_text: str, rendered_code: str) -> str:
+            """Extract the original markdown code block from the original message text"""
+            # Look for code blocks in the original text that match the rendered content
+            import re
+
+            # Find all code blocks in original text
+            code_block_pattern = r'```(?:\w+\n)?(.*?)```'
+            matches = re.findall(code_block_pattern, original_text, re.DOTALL)
+
+            # Find the best match for our rendered content
+            rendered_code_stripped = rendered_code.strip()
+
+            for match in matches:
+                match_stripped = match.strip()
+                # If the content matches (ignoring whitespace differences)
+                if match_stripped == rendered_code_stripped:
+                    return match_stripped
+
+            # If no exact match found, return the rendered content as fallback
+            return rendered_code_stripped
 
     def clear_all(self):
         """Clear all content"""
@@ -1273,6 +1409,10 @@ class ResponseDisplay(scrolledtext.ScrolledText):
 
         # Clear text content
         self.delete(1.0, tk.END)
+
+        # Clean up any orphaned buttons
+        self._cleanup_orphaned_buttons()
+
         self.configure(state=tk.DISABLED)
 
     def copy_selection(self):
