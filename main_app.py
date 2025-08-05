@@ -289,9 +289,18 @@ class MainApplication:
         if current_mode in modes:
             self.mode_var.set(modes[current_mode])
 
+
+        # Action buttons
+        ttk.Button(self.toolbar, text="New Session",
+                   command=self.new_session).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.toolbar, text="Clear",
+                   command=self.clear_chat).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.toolbar, text="Settings",
+                   command=self.show_settings).pack(side=tk.RIGHT, padx=5)
+
         # Temperature control
         temp_frame = ttk.Frame(self.toolbar)
-        temp_frame.pack(side=tk.LEFT, padx=(0, 10))
+        temp_frame.pack(side=tk.RIGHT, padx=(0, 10))
 
         ttk.Label(temp_frame, text="Temperature:").pack(side=tk.LEFT, padx=(0, 5))
 
@@ -304,20 +313,13 @@ class MainApplication:
             orient=tk.HORIZONTAL,
             variable=self.temperature_var,
             length=100,
+            showvalue=0,
             command=self.on_temperature_changed
         )
-        self.temperature_scale.pack(side=tk.LEFT, padx=(0, 5))
+        self.temperature_scale.pack(side=tk.RIGHT, padx=(0, 5))
 
         self.temperature_label = ttk.Label(temp_frame, text="1.0")
         self.temperature_label.pack(side=tk.LEFT)
-
-        # Action buttons
-        ttk.Button(self.toolbar, text="New Session",
-                   command=self.new_session).pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.toolbar, text="Clear",
-                   command=self.clear_chat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.toolbar, text="Settings",
-                   command=self.show_settings).pack(side=tk.RIGHT, padx=5)
     
     def create_main_content(self):
         """Create main content area"""
