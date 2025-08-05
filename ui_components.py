@@ -417,6 +417,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         self.context_menu.add_command(label="Save", command=self.save_content)
 
         self.bind("<Button-3>", self.show_context_menu)
+        self.setup_response_keyboard_bindings()
 
     def setup_python_highlighting_tags(self):
         """Setup text tags for Python syntax highlighting"""
@@ -694,7 +695,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             self.tag_configure("markdown_quote", font=("Inter", 11, "italic"), foreground="#999999",
                                lmargin1=20, lmargin2=20, background="#333333")
             self.tag_configure("markdown_list", font=("Inter", 11), foreground="#ffffff", lmargin1=20, lmargin2=30)
-            # Table styles - FIXED FOR DARK THEME
+            # Table styles
             self.tag_configure("markdown_table_header", font=("JetBrains Mono", 10, "bold"),
                                foreground="#ffffff", background="#404040",
                                spacing1=2, spacing3=2)
@@ -1159,7 +1160,7 @@ class ResponseDisplay(scrolledtext.ScrolledText):
             first_line_end = self.search('```', f"{block_start_pos}+1c", tk.END)
 
         # Position button at the end of the first line, but move it back a bit for right alignment
-        button_pos = f"{first_line_end}-2c" if first_line_end else f"{block_start_pos}+10c"
+        button_pos = f"{first_line_end}" if first_line_end else f"{block_start_pos}"
 
         # Create the copy button with improved styling
         copy_button = tk.Button(
@@ -1416,13 +1417,22 @@ class ResponseDisplay(scrolledtext.ScrolledText):
         self.configure(state=tk.DISABLED)
 
     def copy_selection(self):
-        """Copy selected text"""
+        """Copy selected text with safe event handling"""
         try:
-            selected_text = self.get(tk.SEL_FIRST, tk.SEL_LAST)
-            self.clipboard_clear()
-            self.clipboard_append(selected_text)
+            if self.tag_ranges(tk.SEL):
+                selected_text = self.get(tk.SEL_FIRST, tk.SEL_LAST)
+                # Use the main window's clipboard methods for consistency
+                root = self.winfo_toplevel()
+                root.clipboard_clear()
+                root.clipboard_append(selected_text)
         except tk.TclError:
-            pass  # No selection
+            pass
+
+    def setup_response_keyboard_bindings(self):
+        """Setup keyboard bindings for response display"""
+        # Import here to avoid circular imports
+        from keyboard_shortcuts import KeyboardShortcuts
+        self.response_shortcuts = KeyboardShortcuts(self)
 
     def select_all(self):
         """Select all text"""

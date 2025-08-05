@@ -18,6 +18,7 @@ from ui_components import (
     ModernButton, StatusBar, ProgressDialog, ImageViewer, 
     AudioPlayer, ResponseDisplay, LoadingSpinner
 )
+from keyboard_shortcuts import KeyboardShortcuts
 from notification_system import NotificationManager, StatusBarNotification
 
 
@@ -36,7 +37,10 @@ class MainApplication:
         
         # Current session
         self.current_session_id = str(uuid.uuid4())
-        
+        self.current_request_thread = None
+        self.request_cancelled = False
+        self.last_user_message = ""  # Store last message for error recovery
+
         # Create main window
         try:
             import tkinterdnd2 as tkdnd
@@ -359,28 +363,23 @@ class MainApplication:
         self.input_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         input_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Enhanced context menu for input text
-        self.input_context_menu = tk.Menu(self.input_text, tearoff=0)
-        self.input_context_menu.add_command(label="Undo", command=self.undo_text, accelerator="Ctrl+Z")
-        self.input_context_menu.add_command(label="Redo", command=self.redo_text, accelerator="Ctrl+Y")
-        self.input_context_menu.add_separator()
-        self.input_context_menu.add_command(label="Cut", command=self.cut_text, accelerator="Ctrl+X")
-        self.input_context_menu.add_command(label="Copy", command=self.copy_text, accelerator="Ctrl+C")
-        self.input_context_menu.add_command(label="Paste", command=self.paste_text, accelerator="Ctrl+V")
-        self.input_context_menu.add_separator()
-        self.input_context_menu.add_command(label="Select All", command=self.select_all_text, accelerator="Ctrl+A")
-        self.input_context_menu.add_command(label="Clear", command=self.clear_input_text)
-        self.input_text.bind("<Button-3>", self.show_input_context_menu)
+        # Setup keyboard shortcuts
+        self.input_shortcuts = KeyboardShortcuts(self.input_text)
+        # Set send message callback
+        self.input_shortcuts.set_send_callback(self.send_message)
 
-        # Enhanced keyboard shortcuts
-        self.input_text.bind("<Control-c>", lambda e: self.copy_text())
-        self.input_text.bind("<Control-v>", lambda e: self.paste_text())
-        self.input_text.bind("<Control-x>", lambda e: self.cut_text())
-        self.input_text.bind("<Control-a>", lambda e: self.select_all_text())
-        self.input_text.bind("<Control-z>", lambda e: self.undo_text())
-        self.input_text.bind("<Control-y>", lambda e: self.redo_text())
-        self.input_text.bind("<Control-Return>", lambda e: self.send_message())
-        self.input_text.bind("<Shift-Return>", lambda e: self.insert_newline())
+        # Create context menu for input text
+        self.input_context_menu = tk.Menu(self.input_text, tearoff=0, font=('Segoe UI', 9))
+        self.input_context_menu.add_command(label="Cut", command=self.input_shortcuts.cut)
+        self.input_context_menu.add_command(label="Copy", command=self.input_shortcuts.copy)
+        self.input_context_menu.add_command(label="Paste", command=self.input_shortcuts.paste)
+        self.input_context_menu.add_separator()
+        self.input_context_menu.add_command(label="Select All", command=self.input_shortcuts.select_all)
+        self.input_context_menu.add_separator()
+        self.input_context_menu.add_command(label="Clear", command=self._clear_input_text)
+
+        # Enhanced context menu for input text
+        self.input_text.bind("<Button-3>", self.show_input_context_menu)
         
         # Auto-resize functionality
         self.input_text.bind("<KeyRelease>", self.auto_resize_input)
@@ -405,6 +404,13 @@ class MainApplication:
         self.send_button = ttk.Button(send_frame, text="Send (Ctrl+Enter)",
                                       command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
+        self.send_button.configure(state=tk.DISABLED)
+
+        # ADD stop button next to send button:
+        self.stop_button = ttk.Button(send_frame, text="Stop",
+                                      command=self.stop_request,
+                                      state=tk.DISABLED)
+        self.stop_button.pack(side=tk.RIGHT, padx=(0, 5))
 
         # Loading frame with spinner and text
         self.loading_frame = tk.Frame(send_frame)
@@ -526,31 +532,58 @@ class MainApplication:
         self.response_display.clear_all()
         self.clear_files()
         self.response_display.add_message("New session started.", "system")
-    
+
+    def stop_request(self):
+        """Stop current request processing"""
+        self.request_cancelled = True
+        self.stop_button.configure(state=tk.DISABLED)
+        self.send_button.configure(state=tk.NORMAL)
+
+        # Hide loading indicator
+        self.loading_spinner.stop()
+        self.loading_frame.pack_forget()
+
+        # Restore the last user message
+        if self.last_user_message:
+            self.input_text.delete(1.0, tk.END)
+            self.input_text.insert(1.0, self.last_user_message)
+            self.update_char_count()
+            self.auto_resize_input()
+
+        # Update status
+        self.status_bar.set_status("Request cancelled")
+        self.response_display.add_message("Request was cancelled by user.", "system")
+
     def send_message(self):
         """Send message to Gemini"""
         if not self.gemini_client:
             if not self.initialize_client():
-                self.notification_manager.show_warning("Please configure your API key in Settings.", 
-                                                       action_text="Open Settings", 
+                self.notification_manager.show_warning("Please configure your API key in Settings.",
+                                                       action_text="Open Settings",
                                                        action_callback=self.show_settings)
                 return
-        
+
         message = self.input_text.get(1.0, tk.END).strip()
         if not message and self.file_list.get_file_count() == 0:
             self.notification_manager.show_warning("Please enter a message or attach files.")
             return
 
-        # Show loading indicator
+        # Store the message for potential error recovery
+        self.last_user_message = message
+        self.request_cancelled = False
+
+        # Show loading indicator and update button states
         self._show_loading()
-        
+
         # Add user message to display
         if message:
             self.response_display.add_message(message, "user")
-        
+
         # Clear input
         self.input_text.delete(1.0, tk.END)
-        
+        self.update_char_count()
+        self.auto_resize_input()
+
         # Get current mode
         display_mode = self.mode_var.get()
         mode_key = None
@@ -559,23 +592,32 @@ class MainApplication:
             if value == display_mode:
                 mode_key = key
                 break
-        
+
         # Send message in separate thread
-        threading.Thread(
+        self.current_request_thread = threading.Thread(
             target=self._send_message_thread,
             args=(message, mode_key),
             daemon=True
-        ).start()
+        )
+        self.current_request_thread.start()
 
     def _send_message_thread(self, message: str, mode: str):
         """Send message in separate thread"""
         error_message = None
 
         try:
+            # Check if request was cancelled before starting
+            if self.request_cancelled:
+                return
+
             logging.info(f"Sending message in {mode} mode with model {self.model_var.get()}")
 
             model = self.model_var.get()
             files = self.file_list.get_selected_files()
+
+            # Check for cancellation again
+            if self.request_cancelled:
+                return
 
             if mode == "chat":
                 response = self.gemini_client.chat_message(
@@ -585,42 +627,51 @@ class MainApplication:
                 response = self.gemini_client.generate_text(message, model, files)
             elif mode == "image":
                 images, description = self.gemini_client.generate_image(message)
-                self._handle_image_response(images, description)
+                if not self.request_cancelled:
+                    self._handle_image_response(images, description)
                 return
             elif mode == "edit":
                 if not files:
                     error_message = "Please attach an image file for editing."
-                    self.root.after(0, lambda msg=error_message: self._show_error(msg))
+                    self.root.after(0, lambda msg=error_message: self._show_error_with_recovery(msg))
                     return
                 images, description = self.gemini_client.edit_image(files[0], message)
-                self._handle_image_response(images, description)
+                if not self.request_cancelled:
+                    self._handle_image_response(images, description)
                 return
             elif mode == "audio":
-                self._handle_audio_generation(message)
+                if not self.request_cancelled:
+                    self._handle_audio_generation(message)
                 return
             else:
                 response = self.gemini_client.generate_text(message, model, files)
 
+            # Check if request was cancelled before displaying response
+            if self.request_cancelled:
+                return
+
             # Display response
             self.root.after(0, lambda resp=response: self._display_response(resp))
 
-            # NEW: Auto-clear files if option is enabled
-            if self.config_manager.get("auto_clear_files", False):
+            # Auto-clear files if option is enabled
+            if self.config_manager.get("auto_clear_files", False) and not self.request_cancelled:
                 self.root.after(0, self.clear_files)
                 logging.info("Auto-cleared files after response")
 
             logging.info("Message sent and response received successfully")
 
         except Exception as e:
-            error_message = str(e)
-            logging.error(f"Error in _send_message_thread: {error_message}")
+            if not self.request_cancelled:
+                error_message = str(e)
+                logging.error(f"Error in _send_message_thread: {error_message}")
 
-            # Parse Gemini API errors for better user messages
-            parsed_error = self._parse_api_error(error_message)
-            self.root.after(0, lambda msg=parsed_error: self._show_error(msg))
+                # Parse Gemini API errors for better user messages
+                parsed_error = self._parse_api_error(error_message)
+                self.root.after(0, lambda msg=parsed_error: self._show_error_with_recovery(msg))
 
         finally:
-            self.root.after(0, self._reset_send_button)
+            if not self.request_cancelled:
+                self.root.after(0, self._reset_send_button)
 
     def _parse_api_error(self, error_message: str) -> str:
         """Parse API error messages to provide user-friendly descriptions"""
@@ -774,6 +825,13 @@ class MainApplication:
         # Add error to response display with better formatting
         self.response_display.add_message(error_message, "error")
 
+        # Restore the user's message to input field
+        if self.last_user_message:
+            self.input_text.delete(1.0, tk.END)
+            self.input_text.insert(1.0, self.last_user_message)
+            self.update_char_count()
+            self.auto_resize_input()
+
         # Also show a popup for critical errors that need immediate attention
         if any(keyword in error_message.lower() for keyword in
                ["authentication", "api key", "permission", "unauthenticated"]):
@@ -801,12 +859,15 @@ class MainApplication:
     def _reset_send_button(self):
         """Reset send button state"""
         self.send_button.configure(state=tk.NORMAL)
+        self.stop_button.configure(state=tk.DISABLED)
         self.loading_spinner.stop()
         self.loading_frame.pack_forget()
+        self.update_send_button_state()  # Restore proper state based on content
 
     def _show_loading(self):
         """Show loading indicator"""
         self.send_button.configure(state=tk.DISABLED)
+        self.stop_button.configure(state=tk.NORMAL)
         self.loading_frame.pack(side=tk.LEFT, padx=10)
         self.loading_spinner.pack(side=tk.LEFT, padx=(0, 5))
         self.thinking_label.pack(side=tk.LEFT)
@@ -815,19 +876,34 @@ class MainApplication:
         # Update thinking label color for theme
         colors = self.config_manager.get_theme_colors()
         self.thinking_label.configure(fg=colors['fg'], bg=colors['frame_bg'])
+
+    def update_send_button_state(self):
+        """Update send button state based on input content"""
+        message = self.input_text.get(1.0, tk.END).strip()
+        has_files = self.file_list.get_file_count() > 0
+
+        # Enable button if there's text or files attached
+        if message or has_files:
+            self.send_button.configure(state=tk.NORMAL)
+        else:
+            self.send_button.configure(state=tk.DISABLED)
     
     def add_files(self):
         """Add files through file list widget"""
         self.file_list.add_files()
-    
+
     def clear_files(self):
         """Clear all files"""
         self.file_list.clear_files()
-    
+        # Update send button state when files are cleared
+        self.update_send_button_state()
+
     def on_files_selected(self, files: List[str]):
         """Handle file selection"""
         count = len(files)
         self.status_bar.set_status(f"Ready - {count} file(s) attached")
+        # Update send button state when files change
+        self.update_send_button_state()
     
     def preview_file(self, file_info: dict):
         """Preview selected file"""
@@ -858,6 +934,12 @@ class MainApplication:
         text_widget.configure(state=tk.DISABLED)
         
         tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
+
+    def _clear_input_text(self):
+        """Clear all text in input field"""
+        self.input_text.delete(1.0, tk.END)
+        self.update_char_count()
+        self.auto_resize_input()
     
     def clear_chat(self):
         """Clear chat history"""
@@ -964,73 +1046,46 @@ class MainApplication:
 
     def show_input_context_menu(self, event):
         """Show context menu for input text"""
-        self.input_context_menu.post(event.x_root, event.y_root)
-
-    def cut_text(self):
-        """Cut selected text"""
         try:
-            self.input_text.event_generate("<<Cut>>")
-        except tk.TclError:
-            pass
+            # Update menu item states based on current selection and clipboard
+            has_selection = bool(self.input_text.tag_ranges(tk.SEL))
 
-    def copy_text(self):
-        """Copy selected text"""
-        try:
-            self.input_text.event_generate("<<Copy>>")
-        except tk.TclError:
-            pass
+            # Enable/disable menu items
+            self.input_context_menu.entryconfig("Cut", state=tk.NORMAL if has_selection else tk.DISABLED)
+            self.input_context_menu.entryconfig("Copy", state=tk.NORMAL if has_selection else tk.DISABLED)
 
-    def paste_text(self):
-        """Paste text from clipboard"""
-        try:
-            self.input_text.event_generate("<<Paste>>")
-        except tk.TclError:
-            pass
+            # Check if clipboard has content
+            try:
+                self.root.clipboard_get()
+                self.input_context_menu.entryconfig("Paste", state=tk.NORMAL)
+            except tk.TclError:
+                self.input_context_menu.entryconfig("Paste", state=tk.DISABLED)
 
-    def select_all_text(self):
-        """Select all text in input"""
-        self.input_text.tag_add(tk.SEL, "1.0", tk.END)
-        self.input_text.mark_set(tk.INSERT, "1.0")
-        self.input_text.see(tk.INSERT)
+            # Show menu
+            self.input_context_menu.tk_popup(event.x_root, event.y_root)
+        except Exception as e:
+            print(f"Error showing context menu: {e}")
+        finally:
+            self.input_context_menu.grab_release()
 
-    def undo_text(self):
-        """Undo last text operation"""
-        try:
-            self.input_text.edit_undo()
-        except tk.TclError:
-            pass
-
-    def redo_text(self):
-        """Redo last undone text operation"""
-        try:
-            self.input_text.edit_redo()
-        except tk.TclError:
-            pass
-
-    def clear_input_text(self):
-        """Clear all text in input field"""
-        self.input_text.delete(1.0, tk.END)
-        self.update_char_count()
-
-    def insert_newline(self):
-        """Insert a newline at cursor position"""
-        self.input_text.insert(tk.INSERT, "\n")
-        return "break"  # Prevent default behavior
 
     def auto_resize_input(self, event=None):
         """Auto-resize input text widget based on content"""
         content = self.input_text.get(1.0, tk.END)
         lines = content.count('\n') + 1
-        
+
         # Limit height between 4 and 12 lines
         new_height = max(4, min(12, lines))
         current_height = int(self.input_text.cget('height'))
-        
+
         if new_height != current_height:
             self.input_text.configure(height=new_height)
-        
+
         # Update character count
         self.update_char_count()
+
+        # Update send button state
+        self.update_send_button_state()
 
     def update_char_count(self):
         """Update character count display"""
@@ -1039,30 +1094,6 @@ class MainApplication:
         word_count = len(content.split()) if content.strip() else 0
         
         self.char_count_var.set(f"{char_count} chars, {word_count} words")
-
-    def show_input_context_menu(self, event):
-        """Show context menu for input text"""
-        try:
-            # Update menu item states based on current selection and clipboard
-            has_selection = bool(self.input_text.tag_ranges(tk.SEL))
-            
-            # Enable/disable menu items
-            self.input_context_menu.entryconfig("Cut", state=tk.NORMAL if has_selection else tk.DISABLED)
-            self.input_context_menu.entryconfig("Copy", state=tk.NORMAL if has_selection else tk.DISABLED)
-            
-            # Check if clipboard has content
-            try:
-                self.root.clipboard_get()
-                self.input_context_menu.entryconfig("Paste", state=tk.NORMAL)
-            except tk.TclError:
-                self.input_context_menu.entryconfig("Paste", state=tk.DISABLED)
-            
-            # Show menu
-            self.input_context_menu.tk_popup(event.x_root, event.y_root)
-        except Exception as e:
-            print(f"Error showing context menu: {e}")
-        finally:
-            self.input_context_menu.grab_release()
 
     def show_settings(self):
         """Show settings dialog"""
