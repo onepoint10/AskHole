@@ -54,6 +54,13 @@ A cross-platform desktop application for interacting with Google's Gemini AI mod
    - Enter your Gemini API key
    - Click OK to save
 
+5. **Create install package**:
+    ```bash
+   pip install pyinstaller
+   pyinstaller --onefile main_app.py
+   pyinstaller --onefile --windowed main_app.py
+   ```
+
 ## Project Structure
 
 The application is organized into several functional modules:
