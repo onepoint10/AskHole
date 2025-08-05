@@ -5,7 +5,7 @@ Contains the main application window and orchestrates all components
 
 import tkinter as tk
 import logging
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, Scale
 import threading
 import uuid
 from datetime import datetime
@@ -168,7 +168,7 @@ class MainApplication:
                 widget.configure(bg=colors['frame_bg'], fg=colors['fg'], font=('Segoe UI', 10))
             elif widget_class == 'Button':
                 widget.configure(bg=colors['button_bg'], fg=colors['button_fg'],
-                                 font=('Segoe UI', 9), relief='flat', 
+                                 font=('Segoe UI', 9), relief='flat',
                                  activebackground=colors['select_bg'],
                                  activeforeground=colors['select_fg'])
             elif widget_class == 'Entry':
@@ -193,8 +193,12 @@ class MainApplication:
                 widget.configure(bg=colors['frame_bg'])
             elif widget_class == 'Scrollbar':
                 widget.configure(bg=colors['scrollbar_bg'],
-                                troughcolor=colors['scrollbar_fg'],
-                                activebackground=colors['button_bg'])
+                                 troughcolor=colors['scrollbar_fg'],
+                                 activebackground=colors['button_bg'])
+            elif widget_class == 'Scale':
+                widget.configure(bg=colors['frame_bg'], fg=colors['fg'],
+                                 troughcolor=colors['entry_bg'],
+                                 activebackground=colors['select_bg'])
         except tk.TclError:
             pass
 
@@ -243,18 +247,18 @@ class MainApplication:
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self.show_about)
-    
+
     def create_toolbar(self):
         """Create toolbar with common actions"""
         self.toolbar = ttk.Frame(self.root)
         self.toolbar.pack(fill=tk.X, padx=5, pady=5)
-        
+
         # Model selection
         ttk.Label(self.toolbar, text="Model:").pack(side=tk.LEFT, padx=(0, 5))
-        
+
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(
-            self.toolbar, 
+            self.toolbar,
             textvariable=self.model_var,
             values=self.config_manager.get_available_models(),
             state="readonly",
@@ -263,10 +267,10 @@ class MainApplication:
         self.model_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.model_combo.bind('<<ComboboxSelected>>', self.on_model_changed)
         self.model_var.set(self.config_manager.get("default_model"))
-        
+
         # Mode selection
         ttk.Label(self.toolbar, text="Mode:").pack(side=tk.LEFT, padx=(0, 5))
-        
+
         self.mode_var = tk.StringVar()
         mode_values = list(self.config_manager.get_available_modes().values())
         self.mode_combo = ttk.Combobox(
@@ -278,20 +282,42 @@ class MainApplication:
         )
         self.mode_combo.pack(side=tk.LEFT, padx=(0, 10))
         self.mode_combo.bind('<<ComboboxSelected>>', self.on_mode_changed)
-        
+
         # Set default mode
         current_mode = self.config_manager.get("default_mode")
         modes = self.config_manager.get_available_modes()
         if current_mode in modes:
             self.mode_var.set(modes[current_mode])
-        
+
+        # Temperature control
+        temp_frame = ttk.Frame(self.toolbar)
+        temp_frame.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Label(temp_frame, text="Temperature:").pack(side=tk.LEFT, padx=(0, 5))
+
+        self.temperature_var = tk.DoubleVar(value=1.0)
+        self.temperature_scale = tk.Scale(
+            temp_frame,
+            from_=0.0,
+            to=2.0,
+            resolution=0.1,
+            orient=tk.HORIZONTAL,
+            variable=self.temperature_var,
+            length=100,
+            command=self.on_temperature_changed
+        )
+        self.temperature_scale.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.temperature_label = ttk.Label(temp_frame, text="1.0")
+        self.temperature_label.pack(side=tk.LEFT)
+
         # Action buttons
-        ttk.Button(self.toolbar, text="New Session", 
-                  command=self.new_session).pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.toolbar, text="Clear", 
-                  command=self.clear_chat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(self.toolbar, text="Settings", 
-                  command=self.show_settings).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(self.toolbar, text="New Session",
+                   command=self.new_session).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.toolbar, text="Clear",
+                   command=self.clear_chat).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.toolbar, text="Settings",
+                   command=self.show_settings).pack(side=tk.RIGHT, padx=5)
     
     def create_main_content(self):
         """Create main content area"""
@@ -523,6 +549,11 @@ class MainApplication:
                 "Audio generation mode active. Enter text to convert to speech.",
                 "system"
             )
+
+    def on_temperature_changed(self, value):
+        """Handle temperature slider change"""
+        temp_value = float(value)
+        self.temperature_label.configure(text=f"{temp_value:.1f}")
     
     def new_session(self):
         """Start a new session"""
@@ -633,6 +664,7 @@ class MainApplication:
 
             model = self.model_var.get()
             files = self.file_list.get_selected_files()
+            temperature = self.temperature_var.get()
 
             # Check for cancellation again
             if self.request_cancelled:
@@ -640,10 +672,10 @@ class MainApplication:
 
             if mode == "chat":
                 response = self.gemini_client.chat_message(
-                    self.current_session_id, message, model, files
+                    self.current_session_id, message, model, files, temperature
                 )
             elif mode == "text":
-                response = self.gemini_client.generate_text(message, model, files)
+                response = self.gemini_client.generate_text(message, model, files, temperature)
             elif mode == "image":
                 images, description = self.gemini_client.generate_image(message)
                 if not self.request_cancelled:
@@ -663,7 +695,7 @@ class MainApplication:
                     self._handle_audio_generation(message)
                 return
             else:
-                response = self.gemini_client.generate_text(message, model, files)
+                response = self.gemini_client.generate_text(message, model, files, temperature)
 
             # Check if request was cancelled before displaying response
             if self.request_cancelled:

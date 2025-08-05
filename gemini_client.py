@@ -72,53 +72,55 @@ class GeminiClient:
         except Exception as e:
             print(f"Error getting chat history: {e}")
             return []
-    
-    def generate_text(self, prompt: str, model: str, files=None):
+
+    def generate_text(self, prompt: str, model: str, files=None, temperature: float = 1.0):
         """Generate text response"""
         content_parts = [prompt]
-        
+
         if files:
             for file_path in files:
                 uploaded_file = self._upload_file(file_path)
                 if uploaded_file:
                     content_parts.append(uploaded_file)
-        
+
         try:
             response = self.client.models.generate_content(
                 model=model,
                 contents=content_parts,
                 config=GenerateContentConfig(
                     tools=[Tool(google_search=GoogleSearch())],
+                    temperature=temperature,
                 )
             )
             return response.text
         except Exception as e:
             raise Exception(f"Text generation error: {str(e)}")
-    
-    def chat_message(self, session_id: str, message: str, model: str, files=None):
+
+    def chat_message(self, session_id: str, message: str, model: str, files=None, temperature: float = 1.0):
         """Send message in chat mode"""
         chat = self.get_chat_session(session_id, model)
-        
+
         content_parts = [message]
-        
+
         if files:
             for file_path in files:
                 uploaded_file = self._upload_file(file_path)
                 if uploaded_file:
                     content_parts.append(uploaded_file)
-        
+
         try:
             response = chat.send_message(
                 content_parts,
                 config=GenerateContentConfig(
                     tools=[Tool(google_search=GoogleSearch())],
+                    temperature=temperature,
                 )
             )
-            
+
             # Update message count
             if session_id in self.chat_sessions:
                 self.chat_sessions[session_id]['message_count'] += 1
-            
+
             return response.text
         except Exception as e:
             raise Exception(f"Chat message error: {str(e)}")
