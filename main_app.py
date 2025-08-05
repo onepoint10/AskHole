@@ -10,7 +10,7 @@ import threading
 import uuid
 from datetime import datetime
 from typing import Optional, List
-
+import os
 from gemini_client import GeminiClient, GeminiClientAsync
 from config_manager import ConfigManager, SettingsDialog
 from file_manager import FileManager, FileListWidget
@@ -536,12 +536,26 @@ class MainApplication:
     def stop_request(self):
         """Stop current request processing"""
         self.request_cancelled = True
+
+        # Wait for current thread to finish gracefully
+        if self.current_request_thread and self.current_request_thread.is_alive():
+            # Give thread a moment to see the cancellation flag
+            self.root.after(100, self._complete_stop_request)
+        else:
+            self._complete_stop_request()
+
+    def _complete_stop_request(self):
+        """Complete the stop request after thread cleanup"""
+        # Reset UI state
         self.stop_button.configure(state=tk.DISABLED)
         self.send_button.configure(state=tk.NORMAL)
 
         # Hide loading indicator
         self.loading_spinner.stop()
         self.loading_frame.pack_forget()
+
+        # Update send button state properly
+        self.update_send_button_state()
 
         # Restore the last user message
         if self.last_user_message:
@@ -551,8 +565,12 @@ class MainApplication:
             self.auto_resize_input()
 
         # Update status
-        self.status_bar.set_status("Request cancelled")
+        self.status_bar.set_status("Ready")
         self.response_display.add_message("Request was cancelled by user.", "system")
+
+        # Clear the cancellation flag for next request
+        self.request_cancelled = False
+        self.current_request_thread = None
 
     def send_message(self):
         """Send message to Gemini"""
@@ -593,6 +611,9 @@ class MainApplication:
                 mode_key = key
                 break
 
+        # Reset cancellation flag before starting new request
+        self.request_cancelled = False
+
         # Send message in separate thread
         self.current_request_thread = threading.Thread(
             target=self._send_message_thread,
@@ -603,8 +624,6 @@ class MainApplication:
 
     def _send_message_thread(self, message: str, mode: str):
         """Send message in separate thread"""
-        error_message = None
-
         try:
             # Check if request was cancelled before starting
             if self.request_cancelled:
@@ -633,7 +652,7 @@ class MainApplication:
             elif mode == "edit":
                 if not files:
                     error_message = "Please attach an image file for editing."
-                    self.root.after(0, lambda msg=error_message: self._show_error_with_recovery(msg))
+                    self.root.after(0, lambda: self._show_error_with_recovery(error_message))
                     return
                 images, description = self.gemini_client.edit_image(files[0], message)
                 if not self.request_cancelled:
@@ -651,13 +670,15 @@ class MainApplication:
                 return
 
             # Display response
-            self.root.after(0, lambda resp=response: self._display_response(resp))
+            self.root.after(0, lambda: self._display_response(response))
 
             # Auto-clear files if option is enabled
             if self.config_manager.get("auto_clear_files", False) and not self.request_cancelled:
                 self.root.after(0, self.clear_files)
                 logging.info("Auto-cleared files after response")
 
+            # Clear the stored message only on success
+            self.root.after(0, lambda: setattr(self, 'last_user_message', ""))
             logging.info("Message sent and response received successfully")
 
         except Exception as e:
@@ -667,7 +688,7 @@ class MainApplication:
 
                 # Parse Gemini API errors for better user messages
                 parsed_error = self._parse_api_error(error_message)
-                self.root.after(0, lambda msg=parsed_error: self._show_error_with_recovery(msg))
+                self.root.after(0, lambda: self._show_error_with_recovery(parsed_error))
 
         finally:
             if not self.request_cancelled:
@@ -775,9 +796,12 @@ class MainApplication:
                 # Show image viewer
                 self.root.after(0, lambda img=image: ImageViewer(self.root, img))
 
-                # Add system message about saved image
+                # Add system message about saved image with click-to-open notification
                 self.root.after(0, lambda path=saved_path:
-                self.response_display.add_message(f"Image saved to: {path}", "system"))
+                self.notification_manager.show_file_saved_notification(
+                    f"Image saved: {os.path.basename(path)}",
+                    path
+                ))
 
             except Exception as e:
                 error_msg = str(e)
@@ -790,7 +814,7 @@ class MainApplication:
         def audio_callback(audio_data, error):
             if error:
                 error_msg = f"Audio generation failed: {error}"
-                self.root.after(0, lambda msg=error_msg: self._show_error(msg))
+                self.root.after(0, lambda msg=error_msg: self._show_error_with_recovery(msg))
             else:
                 try:
                     # Save audio
@@ -800,10 +824,12 @@ class MainApplication:
                     # Show audio player
                     self.root.after(0, lambda path=saved_path: self._show_audio_player_with_file(path))
 
-                    # Add system message
-                    success_msg = f"Audio generated and saved to: {saved_path}"
-                    self.root.after(0, lambda msg=success_msg:
-                    self.response_display.add_message(msg, "system"))
+                    # Add system message and notification with click-to-open
+                    self.root.after(0, lambda path=saved_path:
+                    self.notification_manager.show_file_saved_notification(
+                        f"Audio generated: {os.path.basename(path)}",
+                        path
+                    ))
 
                 except Exception as e:
                     error_msg = f"Error saving audio: {str(e)}"
@@ -815,15 +841,25 @@ class MainApplication:
         self.gemini_async.generate_audio_sync(message, audio_callback)
 
     def _display_response(self, response: str):
-        """Display response in the UI"""
+        """Display response in the UI and clear stored message"""
         markdown_enabled = self.config_manager.get("markdown_rendering", True)
         self.response_display.add_message(response, "assistant", markdown_enabled=markdown_enabled)
+
+        # Clear the stored message since response was successful
+        self.last_user_message = ""
+
+        # Reset UI state
+        self._reset_send_button()
+
         logging.info("Response displayed to user")
 
-    def _show_error(self, error_message: str):
-        """Show error message with enhanced formatting"""
-        # Add error to response display with better formatting
+    def _show_error_with_recovery(self, error_message: str):
+        """Show error message with UI recovery and message restoration"""
+        # Add error to response display
         self.response_display.add_message(error_message, "error")
+
+        # Reset UI state
+        self._reset_send_button()
 
         # Restore the user's message to input field
         if self.last_user_message:
@@ -832,28 +868,45 @@ class MainApplication:
             self.update_char_count()
             self.auto_resize_input()
 
-        # Also show a popup for critical errors that need immediate attention
-        if any(keyword in error_message.lower() for keyword in
-               ["authentication", "api key", "permission", "unauthenticated"]):
-            # Show popup for auth-related errors
-            self.notification_manager.show_error(
-                "API Authentication Issue - Check your settings!",
-                action_text="Open Settings",
-                action_callback=self.show_settings
-            )
-        elif "503" in error_message or "overloaded" in error_message.lower():
-            # Show notification for service issues
-            self.notification_manager.show_warning(
-                "Gemini API is temporarily overloaded. Trying again in a moment...",
-                duration=5000
-            )
-        elif "network" in error_message.lower() or "connection" in error_message.lower():
-            # Show notification for network issues
-            self.notification_manager.show_warning(
-                "Network connection issue. Please check your internet connection.",
-                duration=5000
-            )
+        # Show appropriate notifications based on error type
+        try:
+            if any(keyword in error_message.lower() for keyword in
+                   ["authentication", "api key", "permission", "unauthenticated", "401"]):
+                self.notification_manager.show_error(
+                    "API Authentication Issue - Check your settings!",
+                    action_text="Open Settings",
+                    action_callback=self.show_settings,
+                    duration=0  # Keep visible until dismissed
+                )
+            elif any(keyword in error_message.lower() for keyword in
+                     ["503", "overloaded", "unavailable", "service"]):
+                self.notification_manager.show_warning(
+                    "Gemini API is temporarily overloaded. Please try again in a moment.",
+                    duration=8000
+                )
+            elif any(keyword in error_message.lower() for keyword in
+                     ["network", "connection", "timeout"]):
+                self.notification_manager.show_warning(
+                    "Network connection issue. Please check your internet connection.",
+                    duration=6000
+                )
+            elif any(keyword in error_message.lower() for keyword in
+                     ["rate limit", "429", "quota", "exceeded"]):
+                self.notification_manager.show_warning(
+                    "Rate limit exceeded. Please wait before making another request.",
+                    duration=8000
+                )
+            else:
+                # Generic error notification
+                self.notification_manager.show_error(
+                    "Request failed. Your message has been restored to the input field.",
+                    duration=6000
+                )
+        except Exception as e:
+            logging.error(f"Error showing notification: {e}")
 
+        # Update status bar
+        self.status_bar.set_status("Ready - Error occurred")
         logging.error(f"Error shown to user: {error_message}")
 
     def _reset_send_button(self):
@@ -863,6 +916,10 @@ class MainApplication:
         self.loading_spinner.stop()
         self.loading_frame.pack_forget()
         self.update_send_button_state()  # Restore proper state based on content
+        self.current_request_thread = None
+
+        # Update status bar
+        self.status_bar.set_status("Ready")
 
     def _show_loading(self):
         """Show loading indicator"""
@@ -959,7 +1016,7 @@ class MainApplication:
                 self.status_bar.set_status("Response copied to clipboard")
         except Exception as e:
             self.notification_manager.show_error(f"Failed to copy: {e}")
-    
+
     def save_current_response(self):
         """Save current conversation to file"""
         content = self.response_display.get(1.0, tk.END)
@@ -967,7 +1024,10 @@ class MainApplication:
             try:
                 filename = f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 saved_path = self.file_manager.save_text(content, filename)
-                self.notification_manager.show_success(f"Conversation saved to: {saved_path}")
+                self.notification_manager.show_file_saved_notification(
+                    f"Conversation saved to: {os.path.basename(saved_path)}",
+                    saved_path
+                )
             except Exception as e:
                 self.notification_manager.show_error(f"Failed to save: {e}")
         else:
@@ -995,54 +1055,14 @@ class MainApplication:
             try:
                 filename = f"last_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 saved_path = self.file_manager.save_text(last_response, filename)
-                self.notification_manager.show_success(f"Last response saved to: {saved_path}")
+                self.notification_manager.show_file_saved_notification(
+                    f"Last response saved to: {os.path.basename(saved_path)}",
+                    saved_path
+                )
             except Exception as e:
                 self.notification_manager.show_error(f"Failed to save: {e}")
         else:
             self.notification_manager.show_warning("No assistant response found to save.")
-
-    def send_message(self):
-        """Send message to Gemini"""
-        if not self.gemini_client:
-            if not self.initialize_client():
-                self.notification_manager.show_warning("Please configure your API key in Settings.", 
-                                                       action_text="Open Settings", 
-                                                       action_callback=self.show_settings)
-                logging.error("Failed to send message: API key not configured")
-                return
-
-        message = self.input_text.get(1.0, tk.END).strip()
-        if not message and self.file_list.get_file_count() == 0:
-            self.notification_manager.show_warning("Please enter a message or attach files.")
-            return
-
-        logging.info(f"User sending message: {message[:50]}{'...' if len(message) > 50 else ''}")
-
-        # Show loading indicator
-        self._show_loading()
-
-        # Add user message to display
-        if message:
-            self.response_display.add_message(message, "user")
-
-        # Clear input
-        self.input_text.delete(1.0, tk.END)
-
-        # Get current mode
-        display_mode = self.mode_var.get()
-        mode_key = None
-        modes = self.config_manager.get_available_modes()
-        for key, value in modes.items():
-            if value == display_mode:
-                mode_key = key
-                break
-
-        # Send message in separate thread
-        threading.Thread(
-            target=self._send_message_thread,
-            args=(message, mode_key),
-            daemon=True
-        ).start()
 
     def show_input_context_menu(self, event):
         """Show context menu for input text"""
