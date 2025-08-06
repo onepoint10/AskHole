@@ -54,7 +54,7 @@ class MainApplication:
         except ImportError:
             self.root = tk.Tk()
 
-        self.root.title("Gemini Desktop Client")
+        self.root.title("Ask Hole App")
         self.root.iconbitmap("icon.ico")
         self.root.geometry(self.config_manager.get("window_geometry", "1920x1080"))
         
@@ -529,6 +529,7 @@ class MainApplication:
                 if success:
                     initialized_any = True
                     logging.info("OpenRouter client initialized and tested successfully")
+                    self.notification_manager.show_success("OpenRouter client initialized and tested successfully")
                 else:
                     logging.error(f"OpenRouter client failed connection test: {message}")
                     self.notification_manager.show_error(f"OpenRouter API key validation failed: {message}")
@@ -1324,7 +1325,7 @@ class MainApplication:
     
     def show_about(self):
         """Show about dialog"""
-        about_text = """Gemini Desktop Client
+        about_text = """Ask Hole App (Gemini & OpenRouter Desktop Client)
 
 A cross-platform desktop application for interacting with Google's Gemini & OpenRouter's AI models.
 
