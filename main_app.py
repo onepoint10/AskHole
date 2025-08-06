@@ -500,7 +500,9 @@ class MainApplication:
         self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
     def initialize_client(self):
-        """Initialize AI clients if API keys are available"""
+        """
+        Initialize AI clients if API keys are available
+        """
         gemini_key = self.config_manager.get_api_key()
         openrouter_key = self.config_manager.get_openrouter_api_key()
 
@@ -516,13 +518,22 @@ class MainApplication:
             except Exception as e:
                 self.notification_manager.show_error(f"Failed to initialize Gemini client: {e}")
 
-        # Initialize openrouter client
+        # Initialize openrouter client with validation
         if openrouter_key:
             try:
                 self.openrouter_client = OpenRouterClient(openrouter_key)
-                self.openrouter_async = OpenRouterClientAsync(self.openrouter_client)  # Fix: use self.openrouter_client
-                initialized_any = True
-                logging.info("OpenRouter client initialized")
+                self.openrouter_async = OpenRouterClientAsync(self.openrouter_client)
+
+                # Test the connection to validate the API key
+                success, message = self.openrouter_client.test_connection()
+                if success:
+                    initialized_any = True
+                    logging.info("OpenRouter client initialized and tested successfully")
+                else:
+                    logging.error(f"OpenRouter client failed connection test: {message}")
+                    self.notification_manager.show_error(f"OpenRouter API key validation failed: {message}")
+                    # Don't set the client to None, but warn the user
+
             except Exception as e:
                 self.notification_manager.show_error(f"Failed to initialize OpenRouter client: {e}")
 
@@ -530,7 +541,7 @@ class MainApplication:
             self.status_bar.set_status("Ready")
             return True
         else:
-            self.status_bar.set_status("No API keys configured")
+            self.status_bar.set_status("No valid API keys configured")
             return False
     
     def update_status(self):
@@ -584,6 +595,11 @@ class MainApplication:
             self.current_client_type = "gemini"
             if self.gemini_client:
                 self.gemini_client.clear_chat_session(self.current_session_id)
+                self.response_display.add_message(
+                    f"Google Gemini model selected: {selected_model}. "
+                    "Note: Image and audio generation are supported.",
+                    "system"
+                )
 
             # Check if Gemini client is available
             if not self.gemini_client:

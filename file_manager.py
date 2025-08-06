@@ -162,6 +162,10 @@ class FileManager:
         ]
         
         return any(mime_type.startswith(doc_type) for doc_type in document_types)
+
+    def _is_pdf_file(self, file_path: str) -> bool:
+        """Check if file is a PDF"""
+        return file_path.lower().endswith('.pdf')
     
     def create_thumbnail(self, image_path: str, size=(150, 150)) -> Optional[ImageTk.PhotoImage]:
         """Create thumbnail for image file"""
@@ -300,7 +304,9 @@ class FileManager:
         file_extension = os.path.splitext(file_path)[1].lower()
 
         supported_types = [
+            # PDF support for OpenRouter
             'application/pdf',
+            # Text files
             'text/plain',
             'text/csv',
             'text/html',
@@ -312,25 +318,28 @@ class FileManager:
             'text/xml',
             'application/rtf',
             'text/rtf',
+            # Office documents
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/msword',
             'application/vnd.ms-excel',
             'application/vnd.ms-powerpoint',
+            # Images
             'image/jpeg',
             'image/png',
             'image/gif',
             'image/webp',
             'image/heic',
             'image/heif',
+            # Audio
             'audio/mpeg',
             'audio/wav',
             'audio/ogg'
         ]
 
         # Additional check for file extensions that might not have proper MIME types
-        supported_extensions = ['.md', '.py', '.txt', '.csv', '.html', '.css', '.js', '.json', '.xml']
+        supported_extensions = ['.md', '.py', '.txt', '.csv', '.html', '.css', '.js', '.json', '.xml', '.pdf']
 
         if mime_type in supported_types or file_extension in supported_extensions:
             return True, "File is valid"

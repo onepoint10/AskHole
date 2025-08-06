@@ -1,6 +1,6 @@
 """
 Configuration Manager Module
-Handles application settings, user preferences, and API key management
+Handles application settings, user preferences, and API key
 """
 
 import json
