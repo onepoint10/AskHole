@@ -178,8 +178,12 @@ class ConfigManager:
             "tngtech/deepseek-r1t2-chimera:free",
             "tngtech/deepseek-r1t-chimera:free",
             "deepseek/deepseek-r1-0528:free",
+            "microsoft/mai-ds-r1:free",
             "deepseek/deepseek-r1:free",
-            "z-ai/glm-4.5-air:free"
+            "z-ai/glm-4.5-air:free",
+            "mistralai/mistral-small-3.2-24b-instruct:free",
+            "moonshotai/kimi-dev-72b:free",
+            "agentica-org/deepcoder-14b-preview:free"
         ]
     
     def get_available_modes(self) -> Dict[str, str]:

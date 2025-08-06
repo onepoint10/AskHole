@@ -563,7 +563,7 @@ class MainApplication:
 
         # Determine which client to use based on model
         if any(provider in selected_model.lower() for provider in
-               ["deepseek", "openai", "meta-llama", "qwen", "z-ai", "tngtech"]):
+               ["deepseek", "openai", "meta-llama", "qwen", "z-ai", "tngtech", "microsoft", "mistralai", "moonshotai", "agentica"]):
             self.current_client_type = "openrouter"
             if self.openrouter_client:
                 self.openrouter_client.clear_chat_session(self.current_session_id)
@@ -1326,7 +1326,7 @@ class MainApplication:
         """Show about dialog"""
         about_text = """Gemini Desktop Client
 
-A cross-platform desktop application for interacting with Google's Gemini AI models.
+A cross-platform desktop application for interacting with Google's Gemini & OpenRouter's AI models.
 
 Features:
 • Text generation and chat with context
@@ -1336,7 +1336,8 @@ Features:
 • Multiple model selection
 • Customizable themes
 
-Version: 1.0.0
+Version: 1.0.1
+For all questions please contact: one_point_0@icloud.com
 Built with Python and Tkinter"""
         
         # Keep about dialog as messagebox since it's a detailed informational dialog
