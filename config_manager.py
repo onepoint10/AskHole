@@ -32,6 +32,7 @@ class ConfigManager:
         # Default configuration
         self.default_config = {
             "api_key": "",
+            "openrouter_api_key": "",
             "default_model": "gemini-2.5-pro",
             "default_mode": "chat",
             "theme": "light",
@@ -143,23 +144,42 @@ class ConfigManager:
     def get_api_key(self) -> str:
         """Get API key"""
         return self.config.get("api_key", "")
+
+    def get_openrouter_api_key(self) -> str:
+        """Get OpenRouter API key"""
+        return self.config.get("openrouter_api_key", "")
     
     def set_api_key(self, api_key: str):
         """Set API key"""
         self.config["api_key"] = api_key
         self.save_config()
         logging.info("API key updated")
+
+    def openrouter_api_key(self, api_key: str):
+        """Set OpenRouter API key"""
+        self.config["openrouter_api_key"] = api_key
+        self.save_config()
+        logging.info("OpenRouter API key updated")
     
     def is_api_key_configured(self) -> bool:
         """Check if API key is configured"""
         return bool(self.get_api_key().strip())
+
+    def is_openrouter_api_key_configured(self) -> bool:
+        """Check if API key is configured"""
+        return bool(self.get_openrouter_api_key().strip())
     
     def get_available_models(self) -> list:
         """Get list of available models"""
         return [
             "gemini-2.5-flash",
             "gemini-2.5-pro",
-            "gemini-2.5-flash-lite-preview-06-17"
+            "gemini-2.5-flash-lite-preview-06-17",
+            "tngtech/deepseek-r1t2-chimera:free",
+            "tngtech/deepseek-r1t-chimera:free",
+            "deepseek/deepseek-r1-0528:free",
+            "deepseek/deepseek-r1:free",
+            "z-ai/glm-4.5-air:free"
         ]
     
     def get_available_modes(self) -> Dict[str, str]:
@@ -414,19 +434,27 @@ class SettingsDialog:
         self.api_key_var = tk.StringVar()
         api_entry = tk.Entry(self.api_frame, textvariable=self.api_key_var, show="*")
         api_entry.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
-        
+
+        # OpenRouter API key
+        tk.Label(self.api_frame, text="OpenRouter API Key:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.openrouter_api_key_var = tk.StringVar()
+        openrouter_api_entry = tk.Entry(self.api_frame, textvariable=self.openrouter_api_key_var, show="*")
+        openrouter_api_entry.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+        # self.openrouter_api_entry.grid(row=1, column=1, padx=10, pady=5)
+        # self.openrouter_api_entry.insert(0, self.config_manager.get_openrouter_api_key() or "")
+
         # Features
         self.search_enabled_var = tk.BooleanVar()
         tk.Checkbutton(self.api_frame, text="Enable Google Search",
-                      variable=self.search_enabled_var).grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                      variable=self.search_enabled_var).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         
         self.audio_enabled_var = tk.BooleanVar()
         tk.Checkbutton(self.api_frame, text="Enable Audio Generation",
-                      variable=self.audio_enabled_var).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                      variable=self.audio_enabled_var).grid(row=3, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         
         self.image_enabled_var = tk.BooleanVar()
         tk.Checkbutton(self.api_frame, text="Enable Image Generation",
-                      variable=self.image_enabled_var).grid(row=3, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+                      variable=self.image_enabled_var).grid(row=4, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         
         self.api_frame.columnconfigure(1, weight=1)
     
@@ -495,6 +523,7 @@ class SettingsDialog:
         self.history_limit_var.set(str(self.config_manager.get("chat_history_limit")))
         
         self.api_key_var.set(self.config_manager.get("api_key"))
+        self.openrouter_api_key_var.set(self.config_manager.get("openrouter_api_key"))
         self.search_enabled_var.set(self.config_manager.get("search_enabled"))
         self.audio_enabled_var.set(self.config_manager.get("audio_enabled"))
         self.image_enabled_var.set(self.config_manager.get("image_generation_enabled"))
@@ -565,6 +594,7 @@ class SettingsDialog:
             self.config_manager.set("chat_history_limit", int(self.history_limit_var.get()))
             
             self.config_manager.set("api_key", self.api_key_var.get())
+            self.config_manager.set("openrouter_api_key", self.openrouter_api_key_var.get())
             self.config_manager.set("search_enabled", self.search_enabled_var.get())
             self.config_manager.set("audio_enabled", self.audio_enabled_var.get())
             self.config_manager.set("image_generation_enabled", self.image_enabled_var.get())

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Optional, List
 import os
 from gemini_client import GeminiClient, GeminiClientAsync
+from openrouter_client import OpenRouterClient, OpenRouterClientAsync
 from config_manager import ConfigManager, SettingsDialog
 from file_manager import FileManager, FileListWidget
 from ui_components import (
@@ -34,7 +35,12 @@ class MainApplication:
         # Initialize Gemini client (will be set up after API key validation)
         self.gemini_client = None
         self.gemini_async = None
-        
+
+        # Initialize Openrouter client
+        self.openrouter_client = None
+        self.openrouter_client_async = None
+        self.current_client_type = "gemini"
+
         # Current session
         self.current_session_id = str(uuid.uuid4())
         self.current_request_thread = None
@@ -492,22 +498,39 @@ class MainApplication:
         """Create status bar"""
         self.status_bar = StatusBar(self.root)
         self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
-    
+
     def initialize_client(self):
-        """Initialize Gemini client if API key is available"""
-        api_key = self.config_manager.get_api_key()
-        if api_key:
+        """Initialize AI clients if API keys are available"""
+        gemini_key = self.config_manager.get_api_key()
+        openrouter_key = self.config_manager.get_openrouter_api_key()
+
+        initialized_any = False
+
+        # Initialize Gemini client
+        if gemini_key:
             try:
-                self.gemini_client = GeminiClient(api_key)
+                self.gemini_client = GeminiClient(gemini_key)
                 self.gemini_async = GeminiClientAsync(self.gemini_client)
-                self.status_bar.set_status("Ready")
-                return True
+                initialized_any = True
+                logging.info("Gemini client initialized")
             except Exception as e:
                 self.notification_manager.show_error(f"Failed to initialize Gemini client: {e}")
-                self.status_notification.show_temporary_status("Client initialization failed")
-                return False
+
+        # Initialize openrouter client
+        if openrouter_key:
+            try:
+                self.openrouter_client = OpenRouterClient(openrouter_key)
+                self.openrouter_async = OpenRouterClientAsync(self.openrouter_client)  # Fix: use self.openrouter_client
+                initialized_any = True
+                logging.info("OpenRouter client initialized")
+            except Exception as e:
+                self.notification_manager.show_error(f"Failed to initialize OpenRouter client: {e}")
+
+        if initialized_any:
+            self.status_bar.set_status("Ready")
+            return True
         else:
-            self.status_bar.set_status("API key not configured")
+            self.status_bar.set_status("No API keys configured")
             return False
     
     def update_status(self):
@@ -522,12 +545,55 @@ class MainApplication:
                 if value == display_mode:
                     self.status_bar.set_mode(key)
                     break
-    
+
     def on_model_changed(self, event=None):
         """Handle model selection change"""
-        if self.gemini_client:
-            # Clear current session when model changes
-            self.gemini_client.clear_chat_session(self.current_session_id)
+        selected_model = self.model_var.get()
+
+        # Determine which client to use based on model
+        if any(provider in selected_model.lower() for provider in
+               ["deepseek", "openai", "meta-llama", "qwen", "z-ai", "tngtech"]):
+            self.current_client_type = "openrouter"
+            if self.openrouter_client:
+                self.openrouter_client.clear_chat_session(self.current_session_id)
+
+            # Check if OpenRouter client is available
+            if not self.openrouter_client:
+                self.notification_manager.show_warning(
+                    "OpenRouter API key not configured. Please add it in Settings.",
+                    action_text="Open Settings",
+                    action_callback=self.show_settings
+                )
+                return
+
+            # Show model-specific guidance
+            if "deepseek" in selected_model.lower():
+                self.response_display.add_message(
+                    f"DeepSeek model selected: {selected_model}. This model excels at reasoning and mathematical problems. "
+                    "Note: Image and audio generation are not supported.",
+                    "system"
+                )
+            else:
+                self.response_display.add_message(
+                    f"OpenRouter model selected: {selected_model}. "
+                    "Note: Image and audio generation may not be supported.",
+                    "system"
+                )
+        else:
+            # Gemini model
+            self.current_client_type = "gemini"
+            if self.gemini_client:
+                self.gemini_client.clear_chat_session(self.current_session_id)
+
+            # Check if Gemini client is available
+            if not self.gemini_client:
+                self.notification_manager.show_warning(
+                    "Gemini API key not configured. Please add it in Settings.",
+                    action_text="Open Settings",
+                    action_callback=self.show_settings
+                )
+                return
+
         self.update_status()
     
     def on_mode_changed(self, event=None):
@@ -556,12 +622,17 @@ class MainApplication:
         """Handle temperature slider change"""
         temp_value = float(value)
         self.temperature_label.configure(text=f"{temp_value:.1f}")
-    
+
     def new_session(self):
         """Start a new session"""
         self.current_session_id = str(uuid.uuid4())
+
+        # Clear session for both clients
         if self.gemini_client:
             self.gemini_client.clear_chat_session(self.current_session_id)
+        if self.openrouter_client:
+            self.openrouter_client.clear_chat_session(self.current_session_id)
+
         self.response_display.clear_all()
         self.clear_files()
         self.response_display.add_message("New session started.", "system")
@@ -606,13 +677,22 @@ class MainApplication:
         self.current_request_thread = None
 
     def send_message(self):
-        """Send message to Gemini"""
-        if not self.gemini_client:
-            if not self.initialize_client():
-                self.notification_manager.show_warning("Please configure your API key in Settings.",
-                                                       action_text="Open Settings",
-                                                       action_callback=self.show_settings)
-                return
+        """Send message to AI service"""
+        # Check if any client is available
+        if self.current_client_type == "openrouter":
+            if not self.openrouter_client:
+                if not self.initialize_client():
+                    self.notification_manager.show_warning("Please configure your OpenRouter API key in Settings.",
+                                                           action_text="Open Settings",
+                                                           action_callback=self.show_settings)
+                    return
+        elif self.current_client_type == "gemini":
+            if not self.gemini_client:
+                if not self.initialize_client():
+                    self.notification_manager.show_warning("Please configure your Gemini API key in Settings.",
+                                                           action_text="Open Settings",
+                                                           action_callback=self.show_settings)
+                    return
 
         message = self.input_text.get(1.0, tk.END).strip()
         if not message and self.file_list.get_file_count() == 0:
@@ -672,32 +752,49 @@ class MainApplication:
             if self.request_cancelled:
                 return
 
-            if mode == "chat":
-                response = self.gemini_client.chat_message(
-                    self.current_session_id, message, model, files, temperature
-                )
-            elif mode == "text":
-                response = self.gemini_client.generate_text(message, model, files, temperature)
-            elif mode == "image":
-                images, description = self.gemini_client.generate_image(message)
-                if not self.request_cancelled:
-                    self._handle_image_response(images, description)
-                return
-            elif mode == "edit":
-                if not files:
-                    error_message = "Please attach an image file for editing."
+            # Route to appropriate client
+            if self.current_client_type == "openrouter":
+                # DeepSeek doesn't support image/audio generation
+                if mode in ["image", "edit", "audio"]:
+                    error_message = f"{mode.title()} generation is not supported by DeepSeek R1. Please switch to a Gemini model for this feature."
                     self.root.after(0, lambda: self._show_error_with_recovery(error_message))
                     return
-                images, description = self.gemini_client.edit_image(files[0], message)
-                if not self.request_cancelled:
-                    self._handle_image_response(images, description)
-                return
-            elif mode == "audio":
-                if not self.request_cancelled:
-                    self._handle_audio_generation(message)
-                return
-            else:
-                response = self.gemini_client.generate_text(message, model, files, temperature)
+
+                # Use openrouter for text/chat
+                if mode == "chat":
+                    response = self.openrouter_client.chat_message(
+                        self.current_session_id, message, model, files, temperature
+                    )
+                else:  # text mode or fallback
+                    response = self.openrouter_client.generate_text(message, model, files, temperature)
+
+            else:  # Gemini client
+                if mode == "chat":
+                    response = self.gemini_client.chat_message(
+                        self.current_session_id, message, model, files, temperature
+                    )
+                elif mode == "text":
+                    response = self.gemini_client.generate_text(message, model, files, temperature)
+                elif mode == "image":
+                    images, description = self.gemini_client.generate_image(message)
+                    if not self.request_cancelled:
+                        self._handle_image_response(images, description)
+                    return
+                elif mode == "edit":
+                    if not files:
+                        error_message = "Please attach an image file for editing."
+                        self.root.after(0, lambda: self._show_error_with_recovery(error_message))
+                        return
+                    images, description = self.gemini_client.edit_image(files[0], message)
+                    if not self.request_cancelled:
+                        self._handle_image_response(images, description)
+                    return
+                elif mode == "audio":
+                    if not self.request_cancelled:
+                        self._handle_audio_generation(message)
+                    return
+                else:
+                    response = self.gemini_client.generate_text(message, model, files, temperature)
 
             # Check if request was cancelled before displaying response
             if self.request_cancelled:
@@ -720,7 +817,7 @@ class MainApplication:
                 error_message = str(e)
                 logging.error(f"Error in _send_message_thread: {error_message}")
 
-                # Parse Gemini API errors for better user messages
+                # Parse API errors for better user messages
                 parsed_error = self._parse_api_error(error_message)
                 self.root.after(0, lambda: self._show_error_with_recovery(parsed_error))
 
@@ -1262,7 +1359,7 @@ Built with Python and Tkinter"""
     def run(self):
         """Run the application"""
         # Check for API key on startup
-        if not self.config_manager.is_api_key_configured():
+        if (not self.config_manager.is_api_key_configured()) and not (self.config_manager.is_openrouter_api_key_configured()):
             self.notification_manager.show_warning(
                 "Please configure your Gemini API key in Settings to use this application.",
                 action_text="Open Settings",
