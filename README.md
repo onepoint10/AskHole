@@ -1,7 +1,7 @@
 # AskHole
-# Gemini Desktop Client
+# Gemini & OpenRouter Desktop Client
 
-A cross-platform desktop application for interacting with Google's Gemini AI models. This application provides a modern, user-friendly interface for text generation, image creation, audio synthesis, and file processing using Google's Gemini AI.
+A cross-platform desktop application for interacting with Google's Gemini and OpenRouter's AI models. This application provides a modern, user-friendly interface for text generation, image creation, audio synthesis, and file processing using Google's Gemini AI.
 
 ## Features
 
@@ -31,6 +31,7 @@ A cross-platform desktop application for interacting with Google's Gemini AI mod
 ### Prerequisites
 - Python 3.8 or higher
 - Google Gemini API key ([Get one here](https://makersuite.google.com/app/apikey))
+- OpenRouter API key ([Get one here](https://openrouter.ai/settings/keys))
 
 ### Setup
 1. **Clone or download the project files**:
@@ -238,6 +239,10 @@ Each module is designed to be under 800 lines for maintainability.
 
 This project is provided as-is for educational and personal use. Please respect Google's Gemini API terms of service and usage limits.
 
+## Contributing
+
+Please raise PR for any contributions. Any PR raised will be reviewed and merged with the main branch.
+
 ## Support
 
 For issues or questions:
@@ -246,6 +251,9 @@ For issues or questions:
 3. Verify your API key and permissions
 4. Check Python and dependency versions
 
+For all questions please contact: one_point_0@icloud.com
 ---
 
-**Enjoy using Gemini Desktop Client!** 🚀
+**Enjoy using this app!** 🚀
+
+**Cross-platform Gemini & OpenRouter desktop client**
