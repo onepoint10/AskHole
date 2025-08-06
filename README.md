@@ -239,6 +239,10 @@ Each module is designed to be under 800 lines for maintainability.
 
 This project is provided as-is for educational and personal use. Please respect Google's Gemini API terms of service and usage limits.
 
+## Contributing
+
+Please raise PR for any contributions. Any PR raised will be reviewed and merged with the main branch.
+
 ## Support
 
 For issues or questions:
@@ -247,6 +251,9 @@ For issues or questions:
 3. Verify your API key and permissions
 4. Check Python and dependency versions
 
+For all questions please contact: one_point_0@icloud.com
 ---
 
-**Enjoy using Gemini Desktop Client!** 🚀
+**Enjoy using this app!** 🚀
+
+**Cross-platform Gemini & OpenRouter desktop client**
