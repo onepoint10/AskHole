@@ -8,7 +8,7 @@ from google.genai import types
 from google.genai.types import (
     GenerateContentConfig,
     GoogleSearch,
-    Tool,
+    Tool, UrlContext,
 )
 import io
 import tempfile
@@ -88,7 +88,7 @@ class GeminiClient:
                 model=model,
                 contents=content_parts,
                 config=GenerateContentConfig(
-                    tools=[Tool(google_search=GoogleSearch())],
+                    tools=[Tool(google_search=GoogleSearch()), Tool(url_context=UrlContext)],
                     temperature=temperature,
                 )
             )
@@ -112,7 +112,7 @@ class GeminiClient:
             response = chat.send_message(
                 content_parts,
                 config=GenerateContentConfig(
-                    tools=[Tool(google_search=GoogleSearch())],
+                    tools=[Tool(google_search=GoogleSearch()), Tool(url_context=UrlContext)],
                     temperature=temperature,
                 )
             )
