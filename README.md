@@ -17,11 +17,12 @@ A cross-platform desktop application for interacting with Google's Gemini and Op
 - **Modern GUI**: Clean, intuitive interface built with Tkinter
 - **Dark/Light Themes**: Customizable appearance
 - **File Management**: Drag-and-drop file handling with preview
+- **Automatic File Convert**: Support  the most popular file formats
 - **Multi-pane Layout**: Organized workspace with resizable panels
 - **Real-time Status**: Live updates and progress indicators
 
 ### ⚙️ Configuration
-- **Multiple Models**: Switch between Gemini Flash, Pro, and Lite models
+- **Multiple Models**: Switch between Gemini Flash, Pro, Lite and free OpenRouter models 
 - **Persistent Settings**: Save preferences and session data
 - **Export/Import**: Backup and restore configuration
 - **Cross-platform**: Works on Windows, macOS, and Linux
@@ -92,6 +93,12 @@ gemini-desktop-client/
 - File upload and processing
 - Async operations wrapper
 
+- #### `openrouter_client.py` (OpenRouter API Client)
+- Direct interface to OpenRouter API
+- Chat session management
+- File upload and processing
+- Async operations wrapper
+
 #### `config_manager.py` (Configuration Management)
 - User settings and preferences
 - API key management
@@ -117,7 +124,7 @@ gemini-desktop-client/
 
 ### Getting Started
 1. **Launch the application** by running `python main_app.py`
-2. **Configure your API key** in Settings if not already done
+2. **Configure your API keys** in Settings if not already done
 3. **Select a model** from the toolbar dropdown (Flash for speed, Pro for quality)
 4. **Choose a mode** based on what you want to do:
    - **Chat**: Conversational AI with memory
@@ -183,6 +190,7 @@ gemini-desktop-client/
 
 ### Settings Options
 - **API Key**: Your Google Gemini API key
+- **OpenRouter API Key**: Your OpenRouter API key
 - **Default Model**: Preferred model for new sessions
 - **Default Mode**: Starting mode when launching
 - **Theme**: Light or dark appearance
